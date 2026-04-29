@@ -18,6 +18,38 @@ const lastResult = ref<{ type: string; message: string } | null>(null)
 const wheelRotation = ref(-90) // 初始旋转-90度让数字0在顶部
 const transitionDuration = ref('2s')
 
+// 新增：连胜/连败统计
+const winStreak = ref(0)
+const loseStreak = ref(0)
+const maxWinStreak = ref(0)
+
+// 新增：特效状态
+const showLuckyEffect = ref(false)
+const showBonusEffect = ref(false)
+const showChaosEffect = ref(false)
+const pointerGlow = ref(false)
+
+// 新增：随机事件类型
+const randomEvents = ['normal', 'lucky', 'bonus', 'chaos', 'jackpot'] as const
+type RandomEventType = typeof randomEvents[number]
+
+const getRandomEvent = (): RandomEventType => {
+  const rand = Math.random()
+  if (rand < 0.02) return 'jackpot'      // 2% 头奖
+  if (rand < 0.07) return 'lucky'        // 5% 幸运奖励
+  if (rand < 0.12) return 'bonus'        // 5% 额外奖励
+  if (rand < 0.15) return 'chaos'        // 3% 混乱事件
+  return 'normal'                         // 85% 正常
+}
+
+// 新增：连胜加成
+const streakMultiplier = computed(() => {
+  if (winStreak.value >= 5) return 1.5
+  if (winStreak.value >= 3) return 1.2
+  if (winStreak.value >= 2) return 1.1
+  return 1
+})
+
 // 计算最低投入：200 * 1.1^getCount
 const minBet = computed(() => {
   return Math.floor(200 * Math.pow(1.1, props.getCount))
@@ -122,91 +154,168 @@ const spin = () => {
     return
   }
 
+  // 触发随机事件
+  const randomEvent = getRandomEvent()
+  
   // 立即开始旋转
   const degreesPerSegment = 360 / numbers.length
-  const randomSpins = Math.floor(Math.random() * 11) + 15
+  // 更随机的旋转圈数：12-25圈
+  const randomSpins = Math.floor(Math.random() * 14) + 12
   
-  // 随机生成旋转角度（确保旋转至少15圈）
+  // 随机生成旋转角度（确保旋转至少12圈）
   const randomAngle = Math.random() * 360
   const spinRotation = wheelRotation.value + randomSpins * 360 + randomAngle
   
-  transitionDuration.value = `${randomSpins * 0.25}s`
+  // 随机持续时间：添加更多变化
+  const baseDuration = randomSpins * 0.22 + Math.random() * 0.8
+  transitionDuration.value = `${baseDuration}s`
   wheelRotation.value = spinRotation
   
   isSpinning.value = true
+  pointerGlow.value = true
   const currentBet = betAmount.value
   emit('update:gamblingScore', props.gamblingScore - totalCost)
 
-  const spinDuration = randomSpins * 250 + 300
+  // 随机抖动效果
+  if (randomEvent === 'chaos') {
+    showChaosEffect.value = true
+    setTimeout(() => {
+      showChaosEffect.value = false
+    }, 500)
+  }
+
+  const spinDuration = Math.floor(baseDuration * 1000) + 300
   setTimeout(() => {
+    pointerGlow.value = false
+    
     // 根据最终旋转角度计算指针指向的数字
-    // 初始旋转-90度让数字0在顶部
-    // 最终角度需要加上90度偏移来计算相对位置
-    const degreesPerSegment = 360 / numbers.length
-    let finalAngle = wheelRotation.value + 90 // 加上初始偏移
-    // 将角度归一化到0-360度范围内
+    let finalAngle = wheelRotation.value + 90
     finalAngle = ((finalAngle % 360) + 360) % 360
-    // 计算指针指向的扇形索引（注意SVG Y轴向下，需要反向）
-    // 顺时针旋转时，角度增加，数字数组是顺时针排列的
-    // 所以索引 = (360 - finalAngle) / degreesPerSegment
     const winningIndex = Math.floor((360 - finalAngle) / degreesPerSegment) % numbers.length
     const winningNumber = numbers[winningIndex] ?? 0
     const winningColor = getColor(winningNumber)
     
     let win = false
     let payout = 0
+    let eventMessage = ''
 
     for (const bet of selectedBets.value) {
       if (bet === 'red' || bet === 'black') {
         if (bet === winningColor) {
           win = true
-          payout += Math.floor(currentBet * 2)
+          let basePayout = Math.floor(currentBet * 2)
+          // 应用连胜加成
+          payout += Math.floor(basePayout * streakMultiplier.value)
         }
       } else if (bet === 'green') {
         if (winningColor === 'green') {
           win = true
-          payout += Math.floor(currentBet * 14)
+          let basePayout = Math.floor(currentBet * 14)
+          payout += Math.floor(basePayout * streakMultiplier.value)
         }
       } else if (bet.startsWith('number-')) {
         const parts = bet.split('-')
         const betNumber = parseInt(parts[1] ?? '') ?? 0
         if (betNumber === winningNumber) {
           win = true
-          payout += Math.floor(currentBet * 35)
+          let basePayout = Math.floor(currentBet * 35)
+          payout += Math.floor(basePayout * streakMultiplier.value)
         }
       } else if (bet === 'even') {
         if (winningNumber !== 0 && winningNumber % 2 === 0) {
           win = true
-          payout += Math.floor(currentBet * 2)
+          let basePayout = Math.floor(currentBet * 2)
+          payout += Math.floor(basePayout * streakMultiplier.value)
         }
       } else if (bet === 'odd') {
         if (winningNumber % 2 === 1) {
           win = true
-          payout += Math.floor(currentBet * 2)
+          let basePayout = Math.floor(currentBet * 2)
+          payout += Math.floor(basePayout * streakMultiplier.value)
         }
       } else if (bet === 'low') {
         if (winningNumber >= 1 && winningNumber <= 18) {
           win = true
-          payout += Math.floor(currentBet * 2)
+          let basePayout = Math.floor(currentBet * 2)
+          payout += Math.floor(basePayout * streakMultiplier.value)
         }
       } else if (bet === 'high') {
         if (winningNumber >= 19 && winningNumber <= 36) {
           win = true
-          payout += Math.floor(currentBet * 2)
+          let basePayout = Math.floor(currentBet * 2)
+          payout += Math.floor(basePayout * streakMultiplier.value)
         }
       }
+    }
+
+    // 处理随机事件
+    if (randomEvent === 'jackpot') {
+      // 头奖：所有下注都算赢，并且翻倍
+      showBonusEffect.value = true
+      payout = payout * 2 + totalCost * 5
+      eventMessage = ' 🏆 头奖！'
+      win = true
+    } else if (randomEvent === 'lucky') {
+      // 幸运事件：额外奖励
+      showLuckyEffect.value = true
+      const luckyBonus = Math.floor(totalCost * 0.5)
+      payout += luckyBonus
+      eventMessage = ` 🍀 幸运奖励 +${luckyBonus}！`
+    } else if (randomEvent === 'bonus') {
+      // 奖励事件：随机加成
+      showBonusEffect.value = true
+      const bonusMultiplier = 1 + Math.random() * 0.5
+      payout = Math.floor(payout * bonusMultiplier)
+      eventMessage = ` 🎁 额外加成 ${(bonusMultiplier * 100).toFixed(0)}%！`
+    } else if (randomEvent === 'chaos' && !win) {
+      // 混乱事件：输的时候有机会保本
+      const chaosChance = Math.random()
+      if (chaosChance < 0.4) {
+        eventMessage = ' 🌀 混乱保护！返还一半投入'
+        emit('update:gamblingScore', props.gamblingScore - totalCost + Math.floor(totalCost * 0.5))
+      }
+    }
+
+    // 更新连胜/连败统计
+    if (win) {
+      winStreak.value++
+      loseStreak.value = 0
+      if (winStreak.value > maxWinStreak.value) {
+        maxWinStreak.value = winStreak.value
+      }
+    } else {
+      loseStreak.value++
+      winStreak.value = 0
     }
 
     if (win) {
       const netWin = payout - totalCost
       emit('update:gamblingScore', props.gamblingScore - totalCost + payout)
-      lastResult.value = { type: 'success', message: `🎉 恭喜！获得 ${payout} 击分！(净赚 ${netWin})` }
+      let streakMsg = ''
+      if (winStreak.value >= 5) streakMsg = ` (🔥 五连胜！)`
+      else if (winStreak.value >= 3) streakMsg = ` (🔥 三连胜！)`
+      else if (winStreak.value >= 2) streakMsg = ` (🔥 连胜！)`
+      lastResult.value = { 
+        type: 'success', 
+        message: `🎉 恭喜！获得 ${netWin} 击分！${eventMessage}${streakMsg}` 
+      }
     } else {
-      lastResult.value = { type: 'fail', message: `😢 很遗憾，结果是 ${winningColor} ${winningNumber}` }
+      let loseMsg = ''
+      if (loseStreak.value >= 3) loseMsg = ' 💔 三连败...'
+      lastResult.value = { 
+        type: 'fail', 
+        message: `😢 很遗憾，结果是 ${winningColor} ${winningNumber}${eventMessage}${loseMsg}` 
+      }
     }
 
     result.value = { color: winningColor, number: winningNumber, win, payout }
     isSpinning.value = false
+    
+    // 清除特效
+    setTimeout(() => {
+      showLuckyEffect.value = false
+      showBonusEffect.value = false
+    }, 2000)
   }, spinDuration)
 }
 
@@ -228,6 +337,13 @@ const quickBet = (amount: number) => {
       <div class="min-bet">
         <span class="label">最低投入:</span>
         <span class="value">{{ minBet }}</span>
+      </div>
+      <div class="streak-display">
+        <span v-if="winStreak > 0" class="streak win">🔥 {{ winStreak }}连胜</span>
+        <span v-else-if="loseStreak >= 3" class="streak lose">💔 {{ loseStreak }}连败</span>
+      </div>
+      <div class="streak-bonus" v-if="streakMultiplier > 1">
+        <span>加成 {{ (streakMultiplier * 100).toFixed(0) }}%</span>
       </div>
     </div>
 
@@ -256,8 +372,27 @@ const quickBet = (amount: number) => {
     </div>
 
     <div class="roulette-wheel">
-      <div class="wheel" :class="{ spinning: isSpinning }" :style="{ transform: `rotate(${wheelRotation}deg)`, transitionDuration }">
+      <!-- 特效层 -->
+      <div v-if="showLuckyEffect" class="effect-overlay lucky"></div>
+      <div v-if="showBonusEffect" class="effect-overlay bonus"></div>
+      <div v-if="showChaosEffect" class="effect-overlay chaos"></div>
+      
+      <!-- 轮盘 -->
+      <div 
+        class="wheel" 
+        :class="{ 
+          spinning: isSpinning, 
+          'chaos-shake': showChaosEffect 
+        }" 
+        :style="{ transform: `rotate(${wheelRotation}deg)`, transitionDuration }"
+      >
         <svg viewBox="0 0 200 200" class="wheel-svg">
+          <defs>
+            <radialGradient id="wheelGlow">
+              <stop offset="0%" stop-color="#ffd700" stop-opacity="0.5" />
+              <stop offset="100%" stop-color="#ffd700" stop-opacity="0" />
+            </radialGradient>
+          </defs>
           <g v-for="(num, index) in numbers" :key="num">
             <path 
               :d="getSegmentPath(index)" 
@@ -272,7 +407,12 @@ const quickBet = (amount: number) => {
           </g>
         </svg>
       </div>
-      <div class="pointer"></div>
+      
+      <!-- 指针 -->
+      <div class="pointer" :class="{ glowing: pointerGlow }"></div>
+      
+      <!-- 指针光晕 -->
+      <div v-if="pointerGlow" class="pointer-glow"></div>
     </div>
 
     <div v-if="lastResult" class="last-result" :class="lastResult.type">
@@ -395,8 +535,10 @@ const quickBet = (amount: number) => {
 
 .game-info {
   display: flex;
-  gap: 2rem;
+  gap: 1.5rem;
   margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .score-display, .min-bet {
@@ -416,6 +558,43 @@ const quickBet = (amount: number) => {
 .score-display .value, .min-bet .value {
   color: #ffd700;
   font-size: 1.3rem;
+  font-weight: bold;
+}
+
+.streak-display {
+  display: flex;
+  align-items: center;
+  padding: 0.6rem 1rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 10px;
+}
+
+.streak {
+  font-size: 1rem;
+  font-weight: bold;
+  animation: pulse 0.5s ease-in-out infinite;
+}
+
+.streak.win {
+  color: #28a745;
+}
+
+.streak.lose {
+  color: #dc3545;
+}
+
+.streak-bonus {
+  display: flex;
+  align-items: center;
+  padding: 0.6rem 1rem;
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 165, 0, 0.2));
+  border-radius: 10px;
+  border: 1px solid rgba(255, 215, 0, 0.5);
+}
+
+.streak-bonus span {
+  color: #ffd700;
+  font-size: 1rem;
   font-weight: bold;
 }
 
@@ -492,10 +671,30 @@ const quickBet = (amount: number) => {
   background: #1a1a2e;
   border: 4px solid #ffd700;
   position: relative;
-  transition: transform 2s cubic-bezier(0.25, 0.1, 0.25, 1);
+  transition: transform cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 .wheel.spinning {
+  animation: wheelGlow 0.5s ease-in-out infinite alternate;
+}
+
+.wheel.chaos-shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+@keyframes wheelGlow {
+  from {
+    box-shadow: 0 0 10px rgba(255, 215, 0, 0.5), 0 0 20px rgba(255, 215, 0, 0.3);
+  }
+  to {
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.8), 0 0 40px rgba(255, 215, 0, 0.5);
+  }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0) rotate(var(--rotation)); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-5px) rotate(var(--rotation)); }
+  20%, 40%, 60%, 80% { transform: translateX(5px) rotate(var(--rotation)); }
 }
 
 .wheel-svg {
@@ -547,6 +746,56 @@ const quickBet = (amount: number) => {
   border-right: 15px solid transparent;
   border-top: 25px solid #ffd700;
   z-index: 10;
+  transition: all 0.3s ease;
+}
+
+.pointer.glowing {
+  border-top-color: #fffb00;
+  animation: pointerPulse 0.3s ease-in-out infinite alternate;
+}
+
+.pointer-glow {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 40px;
+  background: radial-gradient(ellipse at center, rgba(255, 215, 0, 0.8) 0%, rgba(255, 215, 0, 0.2) 50%, transparent 100%);
+  border-radius: 50%;
+  z-index: 5;
+  animation: glowPulse 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes pointerPulse {
+  from {
+    filter: drop-shadow(0 0 5px rgba(255, 215, 0, 0.8));
+  }
+  to {
+    filter: drop-shadow(0 0 15px rgba(255, 215, 0, 1)) drop-shadow(0 0 30px rgba(255, 215, 0, 0.5));
+  }
+}
+
+@keyframes glowPulse {
+  from {
+    opacity: 0.6;
+    transform: translateX(-50%) scale(1);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.2);
+  }
+}
+
+@keyframes pulse {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
 }
 
 .bet-options {
@@ -724,5 +973,102 @@ const quickBet = (amount: number) => {
   color: #aaa;
   font-size: 0.85rem;
   margin-bottom: 0.3rem;
+}
+
+/* 特效覆盖层 */
+.effect-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 20;
+  animation: effectFade 2s ease-out forwards;
+}
+
+.effect-overlay.lucky {
+  background: radial-gradient(circle at center, rgba(72, 209, 204, 0.6) 0%, rgba(72, 209, 204, 0.2) 40%, transparent 70%);
+  animation: luckyEffect 1s ease-out forwards;
+}
+
+.effect-overlay.bonus {
+  background: radial-gradient(circle at center, rgba(255, 215, 0, 0.7) 0%, rgba(255, 215, 0, 0.3) 40%, transparent 70%);
+  animation: bonusEffect 1.5s ease-out forwards;
+}
+
+.effect-overlay.chaos {
+  background: radial-gradient(circle at center, rgba(148, 0, 211, 0.5) 0%, rgba(148, 0, 211, 0.2) 40%, transparent 70%);
+  animation: chaosEffect 0.5s ease-out forwards;
+}
+
+@keyframes luckyEffect {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+@keyframes bonusEffect {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+  70% {
+    opacity: 0.8;
+    transform: scale(1.3);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+@keyframes chaosEffect {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes effectFade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* 旋转时的文字模糊效果 */
+.wheel.spinning .segment-text {
+  animation: textBlur 0.1s linear infinite;
+}
+
+@keyframes textBlur {
+  0%, 100% {
+    filter: blur(0);
+  }
+  50% {
+    filter: blur(1px);
+  }
 }
 </style>
