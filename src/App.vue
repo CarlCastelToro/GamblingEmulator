@@ -5,6 +5,7 @@ import SnakeGame from './components/SnakeGame.vue'
 import RouletteGame from './components/RouletteGame.vue'
 import BlackjackGame from './components/BlackjackGame.vue'
 import BirdGame from './components/BirdGame.vue'
+import TetrisGame from './components/TetrisGame.vue'
 
 const currentPage = ref('home')
 
@@ -30,7 +31,8 @@ const games = [
   { id: 'snake', name: '博彩蛇', icon: '🐍', description: '贪吃蛇升级版，赌上一切！', color: 'from-green-500 to-emerald-500' },
   { id: 'roulette', name: '轮盘赌', icon: '🎲', description: '红与黑的对决，命运的选择！', color: 'from-blue-500 to-indigo-500' },
   { id: 'blackjack', name: '21点', icon: '🂡', description: '策略与运气的较量！', color: 'from-purple-500 to-pink-500' },
-  { id: 'bird', name: '读博鸟', icon: '🐦', description: '小鸟也疯狂，赌命飞行！', color: 'from-yellow-500 to-orange-500' }
+  { id: 'bird', name: '读博鸟', icon: '🐦', description: '小鸟也疯狂，赌命飞行！', color: 'from-yellow-500 to-orange-500' },
+  { id: 'tetris', name: '俄罗斯方块', icon: '🟦', description: '经典益智，策略布局！', color: 'from-cyan-500 to-blue-500' }
 ]
 
 const features = [
@@ -162,6 +164,9 @@ const features = [
     </main>
     <main v-else-if="currentPage === 'bird'" class="bird-main">
       <BirdGame :gambling-score="score" @update:gambling-score="score = $event" />
+    </main>
+    <main v-else-if="currentPage === 'tetris'" class="tetris-main">
+      <TetrisGame :gambling-score="score" @update:gambling-score="score = $event" />
     </main>
 
     <footer class="footer">

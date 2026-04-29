@@ -279,6 +279,8 @@ const split = () => {
   hand.isActive = false
   newHand.cards.push(drawCard())
   playerHands.value.push(newHand)
+  
+  checkNextHand()
 }
 
 const checkNextHand = () => {
@@ -287,8 +289,8 @@ const checkNextHand = () => {
     return
   }
 
-  const pendingHands = playerHands.value.filter(h => h.cards.length > 0 && getHandScore(h.cards) <= 21)
-  if (pendingHands.length > 0 && pendingHands[0] && playerHands.value.length > 1) {
+  const pendingHands = playerHands.value.filter(h => !h.isActive && h.cards.length > 0 && getHandScore(h.cards) <= 21)
+  if (pendingHands.length > 0 && pendingHands[0]) {
     pendingHands[0].isActive = true
     return
   }
