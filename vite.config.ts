@@ -10,6 +10,7 @@ export default defineConfig({
     vue(),
     vueDevTools(),
   ],
+  base: './',
   server: {
     port: 80,
     host: '0.0.0.0',
