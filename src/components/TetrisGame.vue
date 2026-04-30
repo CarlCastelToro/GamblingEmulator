@@ -131,15 +131,16 @@ const getRandomTetromino = (): Tetromino => {
   
   cumulative += probs.bomb
   if (rand < cumulative + probs.powerup) { // 道具方块
-    const powerups: Tetromino['powerupType'][] = ['clear', 'slow', 'shuffle', 'multiply']
-    const powerupType = powerups[Math.floor(Math.random() * powerups.length)]
+    const powerups: ('clear' | 'slow' | 'shuffle' | 'multiply')[] = ['clear', 'slow', 'shuffle', 'multiply']
+    const powerupIndex = Math.floor(Math.random() * powerups.length)
+    const powerupType = powerups[powerupIndex] ?? 'clear'
     const powerupColors: Record<string, string> = {
       clear: 'red',
       slow: 'blue',
       shuffle: 'purple',
       multiply: 'gold'
     }
-    return { ...base, type: 'powerup', powerupType, color: powerupColors[powerupType] }
+    return { ...base, type: 'powerup', powerupType, color: powerupColors[powerupType] || 'gray' }
   }
   
   cumulative += probs.powerup
@@ -216,7 +217,7 @@ const rotateMatrix = (matrix: number[][]): number[][] => {
   for (let col = 0; col < cols; col++) {
     const newRow: number[] = []
     for (let row = rows - 1; row >= 0; row--) {
-      newRow.push(matrix[row][col] || 0)
+      newRow.push((matrix[row]?.[col] ?? 0) as number)
     }
     rotated.push(newRow)
   }
@@ -348,18 +349,23 @@ const destroyBlocksAtPosition = (targetY: number): number => {
   
   // 检查方块形状覆盖的所有位置
   for (let row = 0; row < piece.shape.length; row++) {
-    for (let col = 0; col < piece.shape[row]?.length || 0; col++) {
-      if (piece.shape[row]?.[col]) {
+    const shapeRow = piece.shape[row]
+    if (!shapeRow) continue
+    for (let col = 0; col < shapeRow.length; col++) {
+      if (shapeRow[col]) {
         const checkX = currentX.value + col
         const checkY = targetY + row
         
         if (checkY >= BOARD_HEIGHT || checkY < 0) continue
         if (checkX >= BOARD_WIDTH || checkX < 0) continue
         
-        const cell = board.value[checkY]?.[checkX]
+        const boardRow = board.value[checkY]
+        if (!boardRow) continue
+        
+        const cell = boardRow[checkX]
         if (cell) {
           // 破坏这个方块
-          board.value[checkY][checkX] = 0
+          boardRow[checkX] = 0
           score.value += 20 // 破坏方块得分
           destroyed++
         }
@@ -443,8 +449,9 @@ const explodePiece = (centerX: number, centerY: number) => {
       const x = centerX + dx
       const y = centerY + dy
       if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
-        if (board.value[y][x]) {
-          board.value[y][x] = 0
+        const boardRow = board.value[y]
+        if (boardRow && boardRow[x]) {
+          boardRow[x] = 0
           score.value += 50
         }
       }
@@ -501,7 +508,8 @@ const addBombBlocks = (centerX: number, centerY: number) => {
         if (y >= BOARD_HEIGHT) {
           // 从底部向上找可用位置
           for (let searchY = BOARD_HEIGHT - 1; searchY >= 0; searchY--) {
-            if (!board.value[searchY][x]) {
+            const boardRow = board.value[searchY]
+            if (boardRow && !boardRow[x]) {
               y = searchY
               break
             }
@@ -514,13 +522,16 @@ const addBombBlocks = (centerX: number, centerY: number) => {
   }
   
   // 添加方块（随机颜色）
-  const colors = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple']
+  const colors: string[] = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple']
   
   for (const pos of positions) {
-    if (!board.value[pos.y][pos.x]) {
-      board.value[pos.y][pos.x] = {
-        type: 'normal',
-        color: colors[Math.floor(Math.random() * colors.length)]
+    const boardRow = board.value[pos.y]
+    if (boardRow && !boardRow[pos.x]) {
+      const colorIndex = Math.floor(Math.random() * colors.length)
+      const color = colors[colorIndex] || 'gray'
+      boardRow[pos.x] = {
+        type: 'normal' as const,
+        color
       }
     }
   }
@@ -553,16 +564,20 @@ const activatePowerup = (type: string) => {
 const clearRandomLine = () => {
   const filledRows: number[] = []
   for (let y = BOARD_HEIGHT - 1; y >= 0; y--) {
-    if (board.value[y].some(cell => cell !== 0)) {
+    const boardRow = board.value[y]
+    if (boardRow && boardRow.some(cell => cell !== 0)) {
       filledRows.push(y)
     }
   }
   if (filledRows.length > 0) {
-    const randomRow = filledRows[Math.floor(Math.random() * filledRows.length)]
-    board.value[randomRow] = Array(BOARD_WIDTH).fill(0)
-    applyGravity()
-    score.value += 200
-    showNotification('🔥 清除一行！')
+    const randomIndex = Math.floor(Math.random() * filledRows.length)
+    const randomRow = filledRows[randomIndex]
+    if (randomRow !== undefined) {
+      board.value[randomRow] = Array(BOARD_WIDTH).fill(0)
+      applyGravity()
+      score.value += 200
+      showNotification('🔥 清除一行！')
+    }
   }
 }
 
@@ -570,25 +585,35 @@ const shuffleBoard = () => {
   const filledCells: (number | { type: string, color: string })[] = []
   
   for (let y = 0; y < BOARD_HEIGHT; y++) {
+    const boardRow = board.value[y]
+    if (!boardRow) continue
     for (let x = 0; x < BOARD_WIDTH; x++) {
-      if (board.value[y][x] !== 0) {
-        filledCells.push(board.value[y][x])
-        board.value[y][x] = 0
+      const cell = boardRow[x]
+      if (cell !== 0 && cell !== undefined) {
+        filledCells.push(cell)
+        boardRow[x] = 0
       }
     }
   }
   
   // 随机打乱方块
   for (let i = filledCells.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [filledCells[i], filledCells[j]] = [filledCells[j], filledCells[i]]
+    const j = Math.floor(Math.random() * (i + 1))
+    const temp = filledCells[i] as number | { type: string; color: string }
+    filledCells[i] = filledCells[j] as number | { type: string; color: string }
+    filledCells[j] = temp
   }
   
   // 重新放置方块到随机位置，从底部开始填充
   let cellIndex = 0
   for (let y = BOARD_HEIGHT - 1; y >= 0 && cellIndex < filledCells.length; y--) {
+    const boardRow = board.value[y]
+    if (!boardRow) continue
     for (let x = 0; x < BOARD_WIDTH && cellIndex < filledCells.length; x++) {
-      board.value[y][x] = filledCells[cellIndex]
+      const cellValue = filledCells[cellIndex]
+      if (cellValue !== undefined) {
+        boardRow[x] = cellValue as number | { type: string; color: string }
+      }
       cellIndex++
     }
   }
@@ -600,10 +625,14 @@ const applyGravity = () => {
   for (let x = 0; x < BOARD_WIDTH; x++) {
     let emptyRow = BOARD_HEIGHT - 1
     for (let y = BOARD_HEIGHT - 1; y >= 0; y--) {
-      if (board.value[y][x] !== 0) {
+      const boardRowY = board.value[y]
+      const boardRowEmpty = board.value[emptyRow]
+      if (!boardRowY || !boardRowEmpty) continue
+      
+      if (boardRowY[x] !== 0) {
         if (y !== emptyRow) {
-          board.value[emptyRow][x] = board.value[y][x]
-          board.value[y][x] = 0
+          boardRowEmpty[x] = boardRowY[x] as number | { type: string; color: string }
+          boardRowY[x] = 0
         }
         emptyRow--
       }
@@ -615,7 +644,10 @@ const clearLines = () => {
   let lines = 0
 
   for (let row = BOARD_HEIGHT - 1; row >= 0; row--) {
-    if (board.value[row].every(cell => cell !== 0)) {
+    const boardRow = board.value[row]
+    if (!boardRow) continue
+    
+    if (boardRow.every(cell => cell !== 0)) {
       board.value.splice(row, 1)
       board.value.unshift(Array(BOARD_WIDTH).fill(0))
       lines++
@@ -662,7 +694,7 @@ const triggerChaosMode = () => {
     
     // 随机改变重力方向
     const directions: ('down' | 'left' | 'right' | 'up')[] = ['down', 'left', 'right', 'up']
-    gravityDirection.value = directions[Math.floor(Math.random() * directions.length)]
+    gravityDirection.value = directions[Math.floor(Math.random() * directions.length)]!
     
     // 开始混沌效果
     if (chaosInterval) clearInterval(chaosInterval)
@@ -677,8 +709,8 @@ const triggerChaosMode = () => {
           
           switch (event) {
             case 'gravity':
-              const directions: ('down' | 'left' | 'right' | 'up')[] = ['down', 'left', 'right', 'up']
-              gravityDirection.value = directions[Math.floor(Math.random() * directions.length)]
+              const chaosDirections: ('down' | 'left' | 'right' | 'up')[] = ['down', 'left', 'right', 'up']
+              gravityDirection.value = chaosDirections[Math.floor(Math.random() * chaosDirections.length)]!
               showNotification(`🌀 重力方向: ${gravityDirection.value}`)
               break
             case 'shake':

@@ -395,7 +395,7 @@ const spawnChaosEvent = () => {
   if (gameOver.value || isPaused.value || !isGamblingMode.value) return
   
   const eventTypes: ChaosEvent['type'][] = ['wind', 'gravity', 'reverse', 'teleport']
-  const type = eventTypes[Math.floor(Math.random() * eventTypes.length)]
+  const type = eventTypes[Math.floor(Math.random() * eventTypes.length)]!
   const x = CANVAS_WIDTH + 50
   let strength = 0
   let duration = 3000
@@ -463,7 +463,7 @@ const spawnPowerUp = () => {
   if (gameOver.value || isPaused.value || !isGamblingMode.value) return
   
   const types: PowerUp['type'][] = ['shield', 'shrink', 'magnify', 'scoreBoost', 'ghost']
-  const type = types[Math.floor(Math.random() * types.length)]
+  const type = types[Math.floor(Math.random() * types.length)]!
   
   powerUps.value.push({
     id: powerUpId++,

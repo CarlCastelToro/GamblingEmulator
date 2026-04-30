@@ -545,14 +545,14 @@ onUnmounted(() => {
           type="range" 
           v-model.number="batchCount" 
           min="1" 
-          :max="parseInt(score / 24)" 
+          :max="Math.floor(score / 24)" 
           step="1"
           class="batch-slider"
         />
         <div class="slider-labels">
           <span>1次</span>
           <span>{{ batchCount }}次</span>
-          <span>{{ parseInt(score / 24) }}次</span>
+          <span>{{ Math.floor(score / 24) }}次</span>
         </div>
       </div>
       <button 
