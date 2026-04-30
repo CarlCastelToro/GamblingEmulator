@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import SlotMachine from './components/SlotMachine.vue'
 import SnakeGame from './components/SnakeGame.vue'
 import RouletteGame from './components/RouletteGame.vue'
 import BlackjackGame from './components/BlackjackGame.vue'
 import BirdGame from './components/BirdGame.vue'
 import TetrisGame from './components/TetrisGame.vue'
+import BankPage from './components/BankPage.vue'
 
 const currentPage = ref('home')
 
@@ -26,13 +27,128 @@ watch(getCount, (newCount) => {
   localStorage.setItem('gambling_get_count', newCount.toString())
 })
 
+// 银行状态 - 统一管理
+const loanAmount = ref(0)
+const depositAmount = ref(0)
+const maxLoan = 1000000
+const loanInterestRate = 0.0001 // 0.01% per second
+const depositInterestRate = 0.00001 // 0.001% per second
+
+// 从 localStorage 读取银行数据
+const savedLoan = localStorage.getItem('bank_loan')
+const savedDeposit = localStorage.getItem('bank_deposit')
+if (savedLoan) loanAmount.value = parseFloat(savedLoan)
+if (savedDeposit) depositAmount.value = parseFloat(savedDeposit)
+
+// 保存银行数据
+const saveBankData = () => {
+  localStorage.setItem('bank_loan', loanAmount.value.toString())
+  localStorage.setItem('bank_deposit', depositAmount.value.toString())
+}
+
+// 定时更新利息
+let bankIntervalId: number
+
+const updateInterest = () => {
+  // 贷款利息
+  if (loanAmount.value > 0) {
+    const interest = loanAmount.value * loanInterestRate
+    loanAmount.value += interest
+  }
+  
+  // 存款利息
+  if (depositAmount.value > 0) {
+    const interest = depositAmount.value * depositInterestRate
+    depositAmount.value += interest
+  }
+  
+  saveBankData()
+}
+
+// 处理获得击分（扣除10%用于偿还贷款）
+const handleScoreGain = (gain: number): number => {
+  if (loanAmount.value > 0) {
+    const repayment = gain * 0.1
+    const actualGain = gain - repayment
+    loanAmount.value = Math.max(0, loanAmount.value - repayment)
+    score.value += actualGain
+    saveBankData()
+    return actualGain
+  }
+  score.value += gain
+  return gain
+}
+
+// 贷款
+const takeLoan = (amount: number) => {
+  const availableLoan = maxLoan - loanAmount.value
+  if (amount <= availableLoan && amount > 0) {
+    loanAmount.value += amount
+    score.value += amount
+    saveBankData()
+    return true
+  }
+  return false
+}
+
+// 存款
+const makeDeposit = (amount: number) => {
+  if (amount <= score.value && amount > 0) {
+    depositAmount.value += amount
+    score.value -= amount
+    saveBankData()
+    return true
+  }
+  return false
+}
+
+// 取款
+const withdrawDeposit = (amount: number) => {
+  if (amount <= depositAmount.value && amount > 0) {
+    depositAmount.value -= amount
+    // 取款时扣除10%用于偿还贷款
+    let remainingAmount = amount
+    if (loanAmount.value > 0) {
+      const repayment = Math.min(loanAmount.value, remainingAmount * 0.1)
+      loanAmount.value -= repayment
+      remainingAmount -= repayment
+    }
+    score.value += remainingAmount
+    saveBankData()
+    return true
+  }
+  return false
+}
+
+// 还款
+const repayLoan = (amount: number) => {
+  if (amount <= score.value && amount > 0 && amount <= loanAmount.value) {
+    score.value -= amount
+    loanAmount.value -= amount
+    saveBankData()
+    return true
+  }
+  return false
+}
+
+onMounted(() => {
+  bankIntervalId = window.setInterval(updateInterest, 1000)
+})
+
+onUnmounted(() => {
+  if (bankIntervalId) {
+    clearInterval(bankIntervalId)
+  }
+})
+
 const games = [
   { id: 'slot', name: '老虎机', icon: '🎰', description: '经典三滚轮，暴击连连！', color: 'from-orange-500 to-red-500' },
   { id: 'snake', name: '博彩蛇', icon: '🐍', description: '贪吃蛇升级版，赌上一切！', color: 'from-green-500 to-emerald-500' },
   { id: 'roulette', name: '轮盘赌', icon: '🎲', description: '红与黑的对决，命运的选择！', color: 'from-blue-500 to-indigo-500' },
   { id: 'blackjack', name: '21点', icon: '🂡', description: '策略与运气的较量！', color: 'from-purple-500 to-pink-500' },
   { id: 'bird', name: '读博鸟', icon: '🐦', description: '小鸟也疯狂，赌命飞行！', color: 'from-yellow-500 to-orange-500' },
-  { id: 'tetris', name: '俄罗斯方块', icon: '🟦', description: '经典益智，策略布局！', color: 'from-cyan-500 to-blue-500' }
+  { id: 'tetris', name: '俄罗斯彩礼', icon: '🟦', description: '雷霆般的攻势！', color: 'from-cyan-500 to-blue-500' },
+  { id: 'bank', name: '博彩银行', icon: '🏦', description: '贷款存款，财富增值！', color: 'from-amber-500 to-yellow-500' }
 ]
 
 const features = [
@@ -59,7 +175,7 @@ const features = [
       </button>
       <div v-else class="score-badge">
         <span class="score-icon">💎</span>
-        <span class="score-num">{{ score }}</span>
+        <span class="score-num">{{ Math.floor(score) }}</span>
       </div>
     </header>
 
@@ -76,7 +192,7 @@ const features = [
           <p class="hero-subtitle">挑战运气极限，赢取丰厚奖励！</p>
           <div class="hero-stats">
             <div class="stat-item">
-              <span class="stat-value">{{ score }}</span>
+              <span class="stat-value">{{ Math.floor(score) }}</span>
               <span class="stat-label">当前击分</span>
             </div>
             <div class="stat-divider"></div>
@@ -140,7 +256,6 @@ const features = [
             <li>• 每次游戏消耗一定击分作为赌注</li>
             <li>• 不同游戏有不同的赔率和玩法</li>
             <li>• 连续获胜可获得连胜奖励</li>
-            <li>• 点击"获取击分"可免费获得10000击分</li>
             <li>• 纯娱乐用途，请勿当真</li>
           </ul>
         </div>
@@ -149,7 +264,7 @@ const features = [
 
     <!-- 老虎机页面 -->
     <main v-else-if="currentPage === 'slot'" class="slot-main">
-      <SlotMachine :gambling-score="score" @update:gambling-score="score = $event" />
+      <SlotMachine :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
     </main>
 
     <!-- 其他游戏页面 -->
@@ -167,6 +282,18 @@ const features = [
     </main>
     <main v-else-if="currentPage === 'tetris'" class="tetris-main">
       <TetrisGame :gambling-score="score" @update:gambling-score="score = $event" />
+    </main>
+    <main v-else-if="currentPage === 'bank'" class="bank-main">
+      <BankPage 
+        :gambling-score="score" 
+        :loan-amount="loanAmount"
+        :deposit-amount="depositAmount"
+        :max-loan="maxLoan"
+        @loan="takeLoan"
+        @deposit="makeDeposit"
+        @withdraw="withdrawDeposit"
+        @repay="repayLoan"
+      />
     </main>
 
     <footer class="footer">
@@ -522,7 +649,7 @@ const features = [
 }
 
 /* 游戏页面容器 */
-.slot-main, .snake-main, .roulette-main, .blackjack-main, .bird-main {
+.slot-main, .snake-main, .roulette-main, .blackjack-main, .bird-main, .bank-main {
   flex: 1;
   width: 100%;
 }
@@ -559,7 +686,7 @@ const features = [
   }
   
   .games-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
   }
   
   .section-title {
@@ -581,7 +708,7 @@ const features = [
   }
   
   .games-grid {
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(7, 1fr);
   }
 }
 </style>

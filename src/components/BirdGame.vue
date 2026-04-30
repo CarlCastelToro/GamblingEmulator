@@ -22,6 +22,32 @@ interface Pipe {
   scored: boolean
 }
 
+interface ChaosEvent {
+  type: 'wind' | 'gravity' | 'speed' | 'reverse' | 'teleport' | 'shield' | 'size'
+  x: number
+  duration: number
+  strength: number
+  startTime: number
+}
+
+interface MovingObstacle {
+  id: number
+  x: number
+  y: number
+  width: number
+  height: number
+  speedY: number
+  type: 'crusher' | 'floater'
+}
+
+interface PowerUp {
+  id: number
+  x: number
+  y: number
+  type: 'shield' | 'shrink' | 'magnify' | 'scoreBoost' | 'ghost'
+  collected: boolean
+}
+
 const props = defineProps<{
   gamblingScore: number
 }>()
@@ -51,6 +77,23 @@ const highScore = ref(parseInt(localStorage.getItem('bird_high_score') || '0'))
 const difficulty = ref<'easy' | 'hard'>('hard')
 const isGamblingMode = ref(false)
 const passedPipes = ref(0)
+
+const chaosEvents = ref<ChaosEvent[]>([])
+const movingObstacles = ref<MovingObstacle[]>([])
+const powerUps = ref<PowerUp[]>([])
+const activeBuffs = ref<{ type: string; endTime: number }[]>([])
+const windForce = ref(0)
+const gravityMultiplier = ref(1)
+const screenShake = ref(0)
+const currentEvent = ref<{ text: string; color: string; time: number } | null>(null)
+const birdSize = ref(BIRD_SIZE)
+const birdX = ref(50)
+
+let obstacleId = 0
+let powerUpId = 0
+let chaosEventLoop: number | null = null
+let obstacleLoop: number | null = null
+let powerUpLoop: number | null = null
 
 // 赌模式随机因子（每次游戏开始时生成）
 let pipeGapVariance = 1
@@ -84,6 +127,9 @@ let pipeId = 0
 
 const birdStyle = computed(() => ({
   top: `${birdY.value}px`,
+  left: `${birdX.value}px`,
+  width: `${birdSize.value}px`,
+  height: `${birdSize.value}px`,
   transition: gameStarted.value ? 'none' : 'top 0.3s ease'
 }))
 
@@ -142,8 +188,26 @@ const updatePipes = () => {
     }
     pipe.x -= speed
     
-    // 检查得分
-    if (pipe.x + PIPE_WIDTH < BIRD_SIZE && !pipe['scored']) {
+    const currentBirdSize = birdSize.value
+    const birdLeft = birdX.value
+    const birdRight = birdLeft + currentBirdSize
+    const birdTop = birdY.value
+    const birdBottom = birdY.value + currentBirdSize
+    
+    const hasShield = activeBuffs.value.some(b => b.type === 'shield')
+    const isGhost = activeBuffs.value.some(b => b.type === 'ghost')
+    
+    const pipeLeft = pipe.x
+    const pipeRight = pipe.x + PIPE_WIDTH
+    
+    const birdOverlapsPipe = birdRight > pipeLeft && birdLeft < pipeRight
+    if (birdOverlapsPipe && !hasShield && !isGhost) {
+      if (birdTop < pipe.topHeight || birdBottom > pipe.topHeight + pipe.gap) {
+        gameOver.value = true
+      }
+    }
+    
+    if (pipeRight < birdLeft && !pipe['scored']) {
       let reward = config.rewardPerPipe
       if (isGamblingMode.value) {
         reward = Math.floor(reward * scoreVariance / 2)
@@ -151,27 +215,11 @@ const updatePipes = () => {
       } else {
         passedPipes.value++
       }
+      if (activeBuffs.value.some(b => b.type === 'scoreBoost')) {
+        reward *= 2
+      }
       score.value += reward
       pipe['scored'] = true
-    }
-    
-    // 碰撞检测
-    const birdLeft = 50
-    const birdRight = birdLeft + BIRD_SIZE
-    const birdTop = birdY.value
-    const birdBottom = birdY.value + BIRD_SIZE
-    
-    const pipeLeft = pipe.x
-    const pipeRight = pipe.x + PIPE_WIDTH
-    
-    if (
-      birdRight > pipeLeft &&
-      birdLeft < pipeRight
-    ) {
-      if (birdTop < pipe.topHeight || birdBottom > pipe.topHeight + pipe.gap) {
-        gameOver.value = true
-        return false
-      }
     }
     
     return pipe.x > -PIPE_WIDTH
@@ -184,20 +232,258 @@ const updateBird = () => {
   if (isGamblingMode.value) {
     gravity *= birdSpeedVariance
   }
+  gravity *= gravityMultiplier.value
+  
+  let currentWind = windForce.value
+  if (isGamblingMode.value) {
+    currentWind += (Math.random() - 0.5) * 0.3
+  }
+  
   birdVelocity.value += gravity
+  birdVelocity.value += currentWind
   birdY.value += birdVelocity.value
   
-  // 边界检测
-  if (birdY.value < 0) {
-    birdY.value = 0
-    birdVelocity.value = 0
-    gameOver.value = true
+  if (screenShake.value > 0) {
+    screenShake.value *= 0.9
   }
-  if (birdY.value > CANVAS_HEIGHT - BIRD_SIZE) {
-    birdY.value = CANVAS_HEIGHT - BIRD_SIZE
-    birdVelocity.value = 0
-    gameOver.value = true
+  
+  checkBuffs()
+  
+  const currentBirdSize = birdSize.value
+  const birdLeft = birdX.value
+  const birdRight = birdLeft + currentBirdSize
+  const birdTop = birdY.value
+  const birdBottom = birdY.value + currentBirdSize
+  
+  const hasShield = activeBuffs.value.some(b => b.type === 'shield')
+  const isGhost = activeBuffs.value.some(b => b.type === 'ghost')
+  
+  if (!hasShield && !isGhost) {
+    if (birdY.value < 0 || birdY.value > CANVAS_HEIGHT - currentBirdSize) {
+      gameOver.value = true
+    }
+  } else {
+    if (birdY.value < 0) birdY.value = 0
+    if (birdY.value > CANVAS_HEIGHT - currentBirdSize) birdY.value = CANVAS_HEIGHT - currentBirdSize
   }
+  
+  checkObstacleCollision(birdLeft, birdRight, birdTop, birdBottom, hasShield, isGhost)
+  checkPowerUpCollection(birdLeft, birdRight, birdTop, birdBottom)
+  checkChaosEvents(birdLeft, birdRight, birdTop, birdBottom)
+}
+
+const checkBuffs = () => {
+  const now = Date.now()
+  activeBuffs.value = activeBuffs.value.filter(buff => {
+    if (now > buff.endTime) {
+      if (buff.type === 'shrink') {
+        birdSize.value = BIRD_SIZE
+      } else if (buff.type === 'magnify') {
+        birdSize.value = BIRD_SIZE
+      }
+      return false
+    }
+    return true
+  })
+}
+
+const checkObstacleCollision = (birdLeft: number, birdRight: number, birdTop: number, birdBottom: number, hasShield: boolean, isGhost: boolean) => {
+  movingObstacles.value.forEach(obs => {
+    const obsLeft = obs.x
+    const obsRight = obs.x + obs.width
+    const obsTop = obs.y
+    const obsBottom = obs.y + obs.height
+    
+    if (birdRight > obsLeft && birdLeft < obsRight && birdBottom > obsTop && birdTop < obsBottom) {
+      if (hasShield) {
+        activeBuffs.value = activeBuffs.value.filter(b => b.type !== 'shield')
+        showChaosEvent('🛡️ 护盾碎了!', '#ff6b6b')
+        screenShake.value = 10
+      } else if (!isGhost) {
+        gameOver.value = true
+      }
+    }
+  })
+}
+
+const checkPowerUpCollection = (birdLeft: number, birdRight: number, birdTop: number, birdBottom: number) => {
+  powerUps.value.forEach(pu => {
+    if (pu.collected) return
+    const puCenterX = pu.x + 15
+    const puCenterY = pu.y + 15
+    const birdCenterX = birdLeft + birdSize.value / 2
+    const birdCenterY = birdTop + birdSize.value / 2
+    const dist = Math.sqrt((puCenterX - birdCenterX) ** 2 + (puCenterY - birdCenterY) ** 2)
+    
+    if (dist < 30) {
+      pu.collected = true
+      applyPowerUp(pu.type)
+    }
+  })
+}
+
+const applyPowerUp = (type: string) => {
+  const duration = 8000 + Math.random() * 7000
+  switch (type) {
+    case 'shield':
+      activeBuffs.value.push({ type: 'shield', endTime: Date.now() + duration })
+      showChaosEvent('🛡️ 护盾激活!', '#4CAF50')
+      break
+    case 'shrink':
+      activeBuffs.value.push({ type: 'shrink', endTime: Date.now() + duration })
+      birdSize.value = BIRD_SIZE * 0.6
+      showChaosEvent('🌀 缩小!', '#2196F3')
+      break
+    case 'magnify':
+      activeBuffs.value.push({ type: 'magnify', endTime: Date.now() + duration })
+      birdSize.value = BIRD_SIZE * 1.5
+      showChaosEvent('⚠️ 变大!', '#ff9800')
+      break
+    case 'scoreBoost':
+      activeBuffs.value.push({ type: 'scoreBoost', endTime: Date.now() + duration })
+      showChaosEvent('💰 得分翻倍!', '#FFD700')
+      break
+    case 'ghost':
+      activeBuffs.value.push({ type: 'ghost', endTime: Date.now() + duration })
+      showChaosEvent('👻 幽灵模式!', '#9C27B0')
+      break
+  }
+}
+
+const checkChaosEvents = (birdLeft: number, birdRight: number, birdTop: number, birdBottom: number) => {
+  chaosEvents.value = chaosEvents.value.filter(event => {
+    const elapsed = Date.now() - event.startTime
+    if (elapsed > event.duration) {
+      windForce.value = 0
+      gravityMultiplier.value = 1
+      return false
+    }
+    
+    const eventCenterX = event.x + 25
+    if (birdRight > event.x && birdLeft < event.x + 50) {
+      switch (event.type) {
+        case 'wind':
+          windForce.value = event.strength
+          break
+        case 'gravity':
+          gravityMultiplier.value = event.strength
+          break
+        case 'reverse':
+          birdVelocity.value = -birdVelocity.value * 0.5
+          showChaosEvent('🔄 反向!', '#E91E63')
+          break
+        case 'teleport':
+          birdY.value = Math.random() * (CANVAS_HEIGHT - birdSize.value)
+          showChaosEvent('🌀 传送!', '#00BCD4')
+          break
+      }
+    }
+    return true
+  })
+}
+
+const showChaosEvent = (text: string, color: string) => {
+  currentEvent.value = { text, color, time: Date.now() }
+  setTimeout(() => {
+    if (currentEvent.value && Date.now() - currentEvent.value.time > 1500) {
+      currentEvent.value = null
+    }
+  }, 2000)
+}
+
+const spawnChaosEvent = () => {
+  if (gameOver.value || isPaused.value || !isGamblingMode.value) return
+  
+  const eventTypes: ChaosEvent['type'][] = ['wind', 'gravity', 'reverse', 'teleport']
+  const type = eventTypes[Math.floor(Math.random() * eventTypes.length)]
+  const x = CANVAS_WIDTH + 50
+  let strength = 0
+  let duration = 3000
+  
+  switch (type) {
+    case 'wind':
+      strength = (Math.random() - 0.5) * 2
+      break
+    case 'gravity':
+      strength = 0.5 + Math.random() * 1.5
+      if (Math.random() > 0.5) strength = -strength
+      duration = 2000 + Math.random() * 3000
+      break
+  }
+  
+  chaosEvents.value.push({
+    type,
+    x,
+    duration,
+    strength,
+    startTime: Date.now()
+  })
+}
+
+const spawnMovingObstacle = () => {
+  if (gameOver.value || isPaused.value || !isGamblingMode.value) return
+  
+  const type = Math.random() > 0.5 ? 'crusher' : 'floater'
+  const y = type === 'crusher' 
+    ? Math.random() > 0.5 ? -50 : CANVAS_HEIGHT + 50
+    : Math.random() * (CANVAS_HEIGHT - 100)
+  
+  movingObstacles.value.push({
+    id: obstacleId++,
+    x: CANVAS_WIDTH + 50,
+    y,
+    width: 40,
+    height: 40,
+    speedY: (Math.random() - 0.5) * 4,
+    type
+  })
+}
+
+const updateMovingObstacles = () => {
+  if (gameOver.value || isPaused.value) return
+  
+  let speed = PIPE_SPEED
+  if (isGamblingMode.value) speed *= birdSpeedVariance
+  
+  movingObstacles.value = movingObstacles.value.filter(obs => {
+    obs.x -= speed
+    obs.y += obs.speedY
+    
+    if (obs.type === 'floater') {
+      if (obs.y < 0 || obs.y > CANVAS_HEIGHT - obs.height) {
+        obs.speedY = -obs.speedY
+      }
+    }
+    
+    return obs.x > -obs.width
+  })
+}
+
+const spawnPowerUp = () => {
+  if (gameOver.value || isPaused.value || !isGamblingMode.value) return
+  
+  const types: PowerUp['type'][] = ['shield', 'shrink', 'magnify', 'scoreBoost', 'ghost']
+  const type = types[Math.floor(Math.random() * types.length)]
+  
+  powerUps.value.push({
+    id: powerUpId++,
+    x: CANVAS_WIDTH + 50,
+    y: 50 + Math.random() * (CANVAS_HEIGHT - 150),
+    type,
+    collected: false
+  })
+}
+
+const updatePowerUps = () => {
+  if (gameOver.value || isPaused.value) return
+  
+  let speed = PIPE_SPEED
+  if (isGamblingMode.value) speed *= birdSpeedVariance
+  
+  powerUps.value = powerUps.value.filter(pu => {
+    pu.x -= speed
+    return pu.x > -30 && !pu.collected
+  })
 }
 
 const gameUpdate = () => {
@@ -205,6 +491,10 @@ const gameUpdate = () => {
   
   updateBird()
   updatePipes()
+  if (isGamblingMode.value) {
+    updateMovingObstacles()
+    updatePowerUps()
+  }
 }
 
 const startGame = () => {
@@ -216,6 +506,17 @@ const startGame = () => {
   gameOver.value = false
   isPaused.value = false
   gameStarted.value = true
+  
+  chaosEvents.value = []
+  movingObstacles.value = []
+  powerUps.value = []
+  activeBuffs.value = []
+  windForce.value = 0
+  gravityMultiplier.value = 1
+  screenShake.value = 0
+  birdSize.value = BIRD_SIZE
+  birdX.value = 50
+  currentEvent.value = null
   
   // 初始化赌模式随机因子
   if (isGamblingMode.value) {
@@ -236,9 +537,18 @@ const startGame = () => {
   
   if (gameLoop) clearInterval(gameLoop)
   if (spawnLoop) clearInterval(spawnLoop)
+  if (chaosEventLoop) clearInterval(chaosEventLoop)
+  if (obstacleLoop) clearInterval(obstacleLoop)
+  if (powerUpLoop) clearInterval(powerUpLoop)
   
   gameLoop = window.setInterval(gameUpdate, 16)
   spawnLoop = window.setInterval(spawnPipe, SPAWN_INTERVAL)
+  
+  if (isGamblingMode.value) {
+    chaosEventLoop = window.setInterval(spawnChaosEvent, 3000 + Math.random() * 4000)
+    obstacleLoop = window.setInterval(spawnMovingObstacle, 2500 + Math.random() * 3000)
+    powerUpLoop = window.setInterval(spawnPowerUp, 5000 + Math.random() * 5000)
+  }
   
   // 立即生成第一个管道
   setTimeout(spawnPipe, 500)
@@ -301,6 +611,9 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
   if (gameLoop) clearInterval(gameLoop)
   if (spawnLoop) clearInterval(spawnLoop)
+  if (chaosEventLoop) clearInterval(chaosEventLoop)
+  if (obstacleLoop) clearInterval(obstacleLoop)
+  if (powerUpLoop) clearInterval(powerUpLoop)
 })
 
 // 更新最高分
@@ -319,11 +632,11 @@ watch(score, (newScore) => {
     <div class="game-info">
       <div class="score-display">
         <span class="label">得分:</span>
-        <span class="value">{{ score }}</span>
+        <span class="value">{{ Math.floor(score) }}</span>
       </div>
       <div class="high-score">
         <span class="label">最高分:</span>
-        <span class="value">{{ highScore }}</span>
+        <span class="value">{{ Math.floor(highScore) }}</span>
       </div>
       <div class="difficulty-selector">
         <span class="difficulty-label">难度:</span>
@@ -358,6 +671,7 @@ watch(score, (newScore) => {
     
     <div 
       class="game-container"
+      :class="{ 'screen-shake': screenShake > 1 }"
       @click="handleClick"
       @touchstart.prevent="handleClick"
     >
@@ -372,7 +686,13 @@ watch(score, (newScore) => {
         <!-- 鸟 -->
         <div 
           class="bird" 
-          :class="{ 'flapping': !isPaused && gameStarted }"
+          :class="{ 
+            'flapping': !isPaused && gameStarted,
+            'has-shield': activeBuffs.some(b => b.type === 'shield'),
+            'is-ghost': activeBuffs.some(b => b.type === 'ghost'),
+            'is-shrunk': activeBuffs.some(b => b.type === 'shrink'),
+            'is-magnified': activeBuffs.some(b => b.type === 'magnify')
+          }"
           :style="birdStyle"
         >
           <div class="bird-body">🐦</div>
@@ -391,6 +711,73 @@ watch(score, (newScore) => {
           class="pipe bottom-pipe"
           :style="bottomPipeStyle(pipe)"
         ></div>
+        
+        <!-- 混沌事件 -->
+        <div 
+          v-for="event in chaosEvents" 
+          :key="'event-' + event.x + event.type"
+          class="chaos-event"
+          :class="event.type"
+          :style="{ left: event.x + 'px' }"
+        >
+          <span v-if="event.type === 'wind'">💨</span>
+          <span v-else-if="event.type === 'gravity'">🌀</span>
+          <span v-else-if="event.type === 'reverse'">🔄</span>
+          <span v-else-if="event.type === 'teleport'">🌀</span>
+        </div>
+        
+        <!-- 移动障碍物 -->
+        <div 
+          v-for="obs in movingObstacles" 
+          :key="'obs-' + obs.id"
+          class="moving-obstacle"
+          :class="obs.type"
+          :style="{ 
+            left: obs.x + 'px', 
+            top: obs.y + 'px',
+            width: obs.width + 'px',
+            height: obs.height + 'px'
+          }"
+        >
+          <span v-if="obs.type === 'crusher'">⚡</span>
+          <span v-else-if="obs.type === 'floater'">👾</span>
+        </div>
+        
+        <!-- 能量道具 -->
+        <div 
+          v-for="pu in powerUps" 
+          :key="'pu-' + pu.id"
+          class="power-up"
+          :class="[pu.type, { collected: pu.collected }]"
+          :style="{ left: pu.x + 'px', top: pu.y + 'px' }"
+        >
+          <span v-if="pu.type === 'shield'">🛡️</span>
+          <span v-else-if="pu.type === 'shrink'">🌀</span>
+          <span v-else-if="pu.type === 'magnify'">⚠️</span>
+          <span v-else-if="pu.type === 'scoreBoost'">💰</span>
+          <span v-else-if="pu.type === 'ghost'">👻</span>
+        </div>
+        
+        <!-- 活跃BUFF指示 -->
+        <div v-if="activeBuffs.length > 0" class="buff-indicator">
+          <span 
+            v-for="(buff, idx) in activeBuffs" 
+            :key="idx"
+            class="buff-icon"
+            :class="buff.type"
+          >
+            <span v-if="buff.type === 'shield'">🛡️</span>
+            <span v-else-if="buff.type === 'shrink'">🌀</span>
+            <span v-else-if="buff.type === 'magnify'">⚠️</span>
+            <span v-else-if="buff.type === 'scoreBoost'">💰</span>
+            <span v-else-if="buff.type === 'ghost'">👻</span>
+          </span>
+        </div>
+        
+        <!-- 当前事件提示 -->
+        <div v-if="currentEvent" class="chaos-event-popup" :style="{ color: currentEvent.color }">
+          {{ currentEvent.text }}
+        </div>
         
         <!-- 开始提示 -->
         <div v-if="!gameStarted" class="start-overlay">
@@ -470,6 +857,9 @@ watch(score, (newScore) => {
           <li>• 鸟跳跃高度随机浮动 -30% ~ +30%</li>
           <li>• 每根管道积分随机浮动 -75% ~ +150%</li>
           <li>• 死亡惩罚: 300击分，随通过柱子数线性减少至0（第15根）</li>
+          <li>⚡ 混沌事件: 风力、重力突变、反向、随机传送</li>
+          <li>💀 移动障碍物: 粉碎者和漂浮者</li>
+          <li>🎁 能量道具: 护盾、缩小、放大、得分翻倍、幽灵模式</li>
         </ul>
       </div>
     </div>
@@ -798,6 +1188,172 @@ watch(score, (newScore) => {
   50% {
     transform: translateY(-5px);
   }
+}
+
+.bird.has-shield {
+  filter: drop-shadow(0 0 10px #4CAF50);
+}
+
+.bird.is-ghost {
+  opacity: 0.5;
+  filter: blur(1px);
+}
+
+.bird.is-shrunk {
+  filter: hue-rotate(180deg);
+}
+
+.bird.is-magnified {
+  filter: hue-rotate(90deg);
+}
+
+.screen-shake {
+  animation: shake 0.3s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px) rotate(-1deg); }
+  75% { transform: translateX(5px) rotate(1deg); }
+}
+
+.chaos-event {
+  position: absolute;
+  width: 50px;
+  height: 400px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  pointer-events: none;
+  animation: chaosFade 3s ease-out forwards;
+}
+
+.chaos-event.wind {
+  background: linear-gradient(180deg, transparent, rgba(135, 206, 235, 0.3), transparent);
+}
+
+.chaos-event.gravity {
+  background: linear-gradient(180deg, transparent, rgba(255, 105, 180, 0.3), transparent);
+}
+
+@keyframes chaosFade {
+  0% { opacity: 0.3; }
+  50% { opacity: 0.8; }
+  100% { opacity: 0; }
+}
+
+.moving-obstacle {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  border-radius: 8px;
+  transition: top 0.1s linear;
+}
+
+.moving-obstacle.crusher {
+  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+  box-shadow: 0 0 15px rgba(255, 107, 107, 0.5);
+  animation: crusherPulse 0.5s infinite;
+}
+
+.moving-obstacle.floater {
+  background: linear-gradient(135deg, #9b59b6, #8e44ad);
+  box-shadow: 0 0 10px rgba(155, 89, 182, 0.5);
+}
+
+@keyframes crusherPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.power-up {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  border-radius: 50%;
+  animation: powerUpGlow 1s ease-in-out infinite, powerUpFloat 2s ease-in-out infinite;
+}
+
+.power-up.collected {
+  opacity: 0;
+  transform: scale(0);
+  transition: all 0.3s;
+}
+
+.power-up.shield {
+  background: radial-gradient(circle, rgba(76, 175, 80, 0.8), transparent);
+}
+
+.power-up.shrink {
+  background: radial-gradient(circle, rgba(33, 150, 243, 0.8), transparent);
+}
+
+.power-up.magnify {
+  background: radial-gradient(circle, rgba(255, 152, 0, 0.8), transparent);
+}
+
+.power-up.scoreBoost {
+  background: radial-gradient(circle, rgba(255, 215, 0, 0.8), transparent);
+}
+
+.power-up.ghost {
+  background: radial-gradient(circle, rgba(156, 39, 176, 0.8), transparent);
+}
+
+@keyframes powerUpGlow {
+  0%, 100% { box-shadow: 0 0 5px currentColor; }
+  50% { box-shadow: 0 0 20px currentColor, 0 0 30px currentColor; }
+}
+
+@keyframes powerUpFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.buff-indicator {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  gap: 5px;
+  z-index: 100;
+}
+
+.buff-icon {
+  font-size: 20px;
+  animation: buffPulse 1s ease-in-out infinite;
+}
+
+@keyframes buffPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.8; }
+}
+
+.chaos-event-popup {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 2rem;
+  font-weight: bold;
+  text-shadow: 0 0 20px currentColor;
+  animation: chaosPopup 2s ease-out forwards;
+  pointer-events: none;
+  z-index: 200;
+}
+
+@keyframes chaosPopup {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+  20% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+  80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); }
 }
 
 .pipe {

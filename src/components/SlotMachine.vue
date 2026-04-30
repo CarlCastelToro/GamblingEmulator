@@ -7,6 +7,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:gamblingScore', value: number): void
+  (e: 'score-gain', amount: number): void
 }>()
 
 const score = ref(props.gamblingScore)
@@ -19,6 +20,11 @@ watch(score, (newScore) => {
   emit('update:gamblingScore', newScore)
   localStorage.setItem('gambling_score', newScore.toString())
 })
+
+// 获得击分（通过事件通知父组件处理贷款还款）
+const addScore = (amount: number) => {
+  emit('score-gain', amount)
+}
 
 const isRolling = ref(false)
 const lastResult = ref<{ type: string; amount: number; message: string; special?: string } | null>(null)
@@ -34,7 +40,7 @@ const probabilityBonus = ref(savedBonus ? parseFloat(savedBonus) : 0)
 
 // 获取次数
 const savedGetCount = localStorage.getItem('gambling_get_count')
-const getCount = ref(savedGetCount ? parseInt(savedGetCount, 10) : 0)
+const getCount = ref(savedGetCount ? parseInt(savedGetCount,24) : 0)
 
 // 连胜计数器
 const winStreak = ref(0)
@@ -51,6 +57,7 @@ watch(getCount, (newCount) => {
 const symbols = ['🍒', '⭐', '💎', '7', '🔔', '💰', '🎰', '🎯', '🔥', '💀', '👑', '⚡']
 
 const reel1 = ref({ current: 0, isSpinning: false, display: 0 })
+let animationFrameId: number | null = null // 用于取消动画
 const reel2 = ref({ current: 0, isSpinning: false, display: 0 })
 const reel3 = ref({ current: 0, isSpinning: false, display: 0 })
 
@@ -61,7 +68,7 @@ const isCelebrating = ref(false)
 const spinReelsFast = ref(false)
 
 const getScore = () => {
-  score.value += 10000
+  addScore(10000)
   probabilityBonus.value = Math.max(-30, probabilityBonus.value - 1)
   getCount.value++
   lastResult.value = { type: 'success', amount: 10000, message: '获得10000击分！' }
@@ -197,9 +204,9 @@ const animateRoll = (callback: (r1: number, r2: number, r3: number) => void) => 
     return
   }
 
-  const duration1 = 1000 + Math.random() * 500
-  const duration2 = duration1 + 400 + Math.random() * 400
-  const duration3 = duration2 + 400 + Math.random() * 400
+  const duration1 = (1000 + Math.random() * 500) / 2 // 速度翻倍
+  const duration2 = duration1 + (400 + Math.random() * 400) / 2
+  const duration3 = duration2 + (400 + Math.random() * 400) / 2
 
   const spinReel = (reel: typeof reel1.value, finalValue: number, duration: number, onComplete: () => void) => {
     const startTime = Date.now()
@@ -245,19 +252,23 @@ const animateRoll = (callback: (r1: number, r2: number, r3: number) => void) => 
 }
 
 const roll = () => {
-  if (score.value < 10) {
-    lastResult.value = { type: 'error', amount: 0, message: '击分不足！需要10击分才能老虎机' }
+  if (score.value < 24) {
+    lastResult.value = { type: 'error', amount: 0, message: '击分不足！需要24击分才能老虎机' }
     return
   }
   if (isRolling.value || isBatchRolling.value) return
 
   isRolling.value = true
-  score.value -= 10
+  score.value -= 24
 
   animateRoll((r1, r2, r3) => {
     const result = rollOnceWithSymbols(r1, r2, r3)
     probabilityBonus.value = Math.min(50, probabilityBonus.value + 0.1)
-    score.value += result.amount
+    if (result.amount > 0) {
+      addScore(result.amount)
+    } else {
+      score.value += result.amount
+    }
     lastResult.value = {
       type: result.amount > 0 ? 'success' : 'fail',
       amount: result.amount,
@@ -289,42 +300,70 @@ const animateRollPromise = (): Promise<{ r1: number; r2: number; r3: number }> =
   })
 }
 
+// 单次批量最大次数限制，防止内存溢出
+const MAX_BATCH_TIMES = 1000000
+
 const batchRoll = () => {
-  const times = batchCount.value
-  if (score.value < times * 24) {
-    lastResult.value = { type: 'error', amount: 0, message: `击分不足！需要 ${times * 24} 击分才能老虎机` }
+  let remainingTimes = batchCount.value
+  
+  // 限制单次最大批量次数
+  if (remainingTimes > MAX_BATCH_TIMES) {
+    lastResult.value = { type: 'error', amount: 0, message: `单次批量老虎机不能超过 ${MAX_BATCH_TIMES} 次！` }
+    return
+  }
+  
+  if (score.value < remainingTimes * 24) {
+    lastResult.value = { type: 'error', amount: 0, message: `击分不足！需要 ${remainingTimes * 24} 击分才能老虎机` }
     return
   }
   if (isRolling.value || isBatchRolling.value) return
 
   isBatchRolling.value = true
-  const cost = times * 24
+  const cost = remainingTimes * 24
   score.value -= cost
   batchProgress.value = 0
   const baseScore = score.value
   let totalWin = 0
 
-  const results: { r1: number; r2: number; r3: number }[] = []
-  for (let i = 0; i < times; i++) {
-    results.push({
-      r1: getRandomSymbol(),
-      r2: getRandomSymbol(),
-      r3: getRandomSymbol()
-    })
-  }
-
-  const runningTotals: number[] = []
+  // 按需计算结果，不存储所有结果
+  let finalR1 = 0, finalR2 = 0, finalR3 = 0
   let cumulativeWin = 0
-  for (const r of results) {
-    const result = rollOnceWithSymbols(r.r1, r.r2, r.r3)
-    cumulativeWin += result.amount
-    runningTotals.push(cumulativeWin)
+  const batchSize = Math.min(1000, remainingTimes) // 每批处理1000次
+  let processedCount = 0
+  
+  // 预计算累积获胜值（使用更高效的方式）
+  const calculateWin = (count: number): { win: number; r1: number; r2: number; r3: number } => {
+    let win = 0
+    let r1 = 0, r2 = 0, r3 = 0
+    for (let i = 0; i < count; i++) {
+      r1 = getRandomSymbol()
+      r2 = getRandomSymbol()
+      r3 = getRandomSymbol()
+      win += rollOnceWithSymbols(r1, r2, r3).amount
+    }
+    return { win, r1, r2, r3 }
   }
 
-  const duration = 10000
+  // 分块计算累积值
+  const cumulativeWins: number[] = []
+  let currentWin = 0
+  const chunks = Math.ceil(remainingTimes / batchSize)
+  
+  for (let i = 0; i < chunks; i++) {
+    const chunkSize = Math.min(batchSize, remainingTimes - i * batchSize)
+    const result = calculateWin(chunkSize)
+    currentWin += result.win
+    cumulativeWins.push(currentWin)
+    if (i === chunks - 1) {
+      finalR1 = result.r1
+      finalR2 = result.r2
+      finalR3 = result.r3
+    }
+  }
+
+  const duration = Math.min((10000 + remainingTimes * 2) / 2, 15000) // 持续时间限制在15秒内，速度翻倍
   const startTime = Date.now()
-  let currentResultIndex = 0
-  let lastCountUpdate = 0
+  let lastProgressUpdate = 0
 
   reel1.value.isSpinning = true
   reel2.value.isSpinning = true
@@ -334,41 +373,50 @@ const batchRoll = () => {
     const elapsed = Date.now() - startTime
     const progress = Math.min(elapsed / duration, 1)
 
-    const currentCount = Math.floor(progress * times)
-    if (currentCount !== lastCountUpdate && currentCount < times) {
-      lastCountUpdate = currentCount
-      batchProgress.value = (currentCount / times) * 100
-      totalWin = runningTotals[currentCount - 1] || 0
+    const currentCount = Math.floor(progress * remainingTimes)
+    
+    // 限制更新频率，每处理1%更新一次
+    const progressPercent = Math.floor((currentCount / remainingTimes) * 100)
+    if (progressPercent !== lastProgressUpdate) {
+      lastProgressUpdate = progressPercent
+      batchProgress.value = progressPercent
+      
+      // 根据当前进度计算累积获胜值
+      const chunkIndex = Math.min(Math.floor(currentCount / batchSize), cumulativeWins.length - 1)
+      totalWin = cumulativeWins[chunkIndex] || 0
       score.value = baseScore + totalWin
     }
 
-    if (currentResultIndex < times) {
-      const randomIdx = Math.floor(Math.random() * Math.min(currentResultIndex + 50, times))
-      const result = results[randomIdx]!
-      reel1.value.display = result.r1
-      reel2.value.display = result.r2
-      reel3.value.display = result.r3
-      currentResultIndex = Math.min(currentResultIndex + 1, times - 1)
+    // 更新滚轮显示（随机显示，不存储历史）
+    if (progress < 0.95) {
+      reel1.value.display = getRandomSymbol()
+      reel2.value.display = getRandomSymbol()
+      reel3.value.display = getRandomSymbol()
+    } else {
+      // 最后阶段显示最终结果
+      reel1.value.display = finalR1
+      reel2.value.display = finalR2
+      reel3.value.display = finalR3
     }
 
     if (progress < 1) {
-      requestAnimationFrame(spinAnimation)
+      animationFrameId = requestAnimationFrame(spinAnimation)
     } else {
+      animationFrameId = null
       reel1.value.isSpinning = false
       reel2.value.isSpinning = false
       reel3.value.isSpinning = false
-      const lastResult_ = results[times - 1]!
-      reel1.value.display = lastResult_.r1
-      reel2.value.display = lastResult_.r2
-      reel3.value.display = lastResult_.r3
-      reel1.value.current = lastResult_.r1
-      reel2.value.current = lastResult_.r2
-      reel3.value.current = lastResult_.r3
+      reel1.value.display = finalR1
+      reel2.value.display = finalR2
+      reel3.value.display = finalR3
+      reel1.value.current = finalR1
+      reel2.value.current = finalR2
+      reel3.value.current = finalR3
 
-      totalWin = runningTotals[times - 1] || 0
+      totalWin = cumulativeWins[cumulativeWins.length - 1] || 0
       score.value = baseScore + totalWin
 
-      probabilityBonus.value = Math.min(50, probabilityBonus.value + times * 0.1 * 1.25)
+      probabilityBonus.value = Math.min(50, probabilityBonus.value + remainingTimes * 0.1 * 1.25)
 
       batchProgress.value = 100
       isBatchRolling.value = false
@@ -389,6 +437,29 @@ const formatTime = (date: Date) => {
 }
 
 const totalCost = computed(() => batchCount.value * 24)
+
+// 取消批量滚动
+const cancelBatchRoll = () => {
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId)
+    animationFrameId = null
+  }
+  reel1.value.isSpinning = false
+  reel2.value.isSpinning = false
+  reel3.value.isSpinning = false
+  isBatchRolling.value = false
+  batchProgress.value = 0
+  lastResult.value = { type: 'info', amount: 0, message: '批量老虎机已取消' }
+}
+
+// 组件卸载时清理
+import { onUnmounted } from 'vue'
+onUnmounted(() => {
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId)
+    animationFrameId = null
+  }
+})
 </script>
 
 <template>
@@ -405,7 +476,7 @@ const totalCost = computed(() => batchCount.value * 24)
 
     <div class="score-card">
       <div class="score-label">当前击分</div>
-      <div class="score-value">{{ score }}</div>
+      <div class="score-value">{{ Math.floor(score) }}</div>
       <div v-if="probabilityBonus !== 0" class="bonus-info">
         <span class="bonus-label">概率加成:</span>
         <span :class="['bonus-value', probabilityBonus > 0 ? 'positive' : 'negative']">
@@ -462,26 +533,26 @@ const totalCost = computed(() => batchCount.value * 24)
         <h3>批量老虎机</h3>
         <span class="batch-info">次数: {{ batchCount }} | 消耗: {{ totalCost }} 击分</span>
       </div>
-      <div class="skip-toggle">
+      <!--div class="skip-toggle">
         <span class="skip-label">跳过动画</span>
         <label class="toggle-switch">
           <input type="checkbox" v-model="skipAnimation" />
           <span class="toggle-slider"></span>
         </label>
-      </div>
+      </div-->
       <div class="slider-container">
         <input 
           type="range" 
           v-model.number="batchCount" 
           min="1" 
-          max="1000" 
+          :max="parseInt(score / 24)" 
           step="1"
           class="batch-slider"
         />
         <div class="slider-labels">
           <span>1次</span>
           <span>{{ batchCount }}次</span>
-          <span>1000次</span>
+          <span>{{ parseInt(score / 24) }}次</span>
         </div>
       </div>
       <button 
@@ -492,11 +563,19 @@ const totalCost = computed(() => batchCount.value * 24)
         <span v-if="isBatchRolling">🎰 批量老虎机中...</span>
         <span v-else>🚀 批量老虎机</span>
       </button>
-      <div v-if="isBatchRolling" class="progress-container">
-        <div class="progress-bar">
-          <div class="progress-fill" :style="{ width: batchProgress + '%' }"></div>
+      <div v-if="isBatchRolling" class="batch-controls">
+        <div class="progress-container">
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: batchProgress + '%' }"></div>
+          </div>
+          <span class="progress-text">{{ Math.round(batchProgress) }}%</span>
         </div>
-        <span class="progress-text">{{ Math.round(batchProgress) }}%</span>
+        <button 
+          class="cancel-btn"
+          @click="cancelBatchRoll"
+        >
+          ❌ 取消
+        </button>
       </div>
     </div>
 
@@ -934,6 +1013,30 @@ const totalCost = computed(() => batchCount.value * 24)
 .batch-btn:hover:not(:disabled) {
   transform: scale(1.02);
   box-shadow: 0 6px 20px rgba(76, 175, 80, 0.6);
+}
+
+.batch-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+
+.cancel-btn {
+  padding: 0.6rem 1rem;
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.cancel-btn:hover {
+  background: rgba(239, 68, 68, 0.3);
+  transform: scale(1.02);
 }
 
 .batch-btn:disabled {

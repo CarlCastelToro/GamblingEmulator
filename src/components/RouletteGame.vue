@@ -332,7 +332,7 @@ const quickBet = (amount: number) => {
     <div class="game-info">
       <div class="score-display">
         <span class="label">💰 击分:</span>
-        <span class="value">{{ gamblingScore }}</span>
+        <span class="value">{{ Math.floor(gamblingScore) }}</span>
       </div>
       <div class="min-bet">
         <span class="label">最低投入:</span>

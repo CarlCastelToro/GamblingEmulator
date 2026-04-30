@@ -22,6 +22,7 @@ interface PlayerHand {
   isActive: boolean
   bet: number
   hasDoubled: boolean
+  hasStand: boolean
 }
 
 const suits = ['♠', '♥', '♦', '♣']
@@ -141,7 +142,8 @@ const startGame = () => {
     cards: [drawCard(), drawCard()],
     isActive: true,
     bet: betAmount.value,
-    hasDoubled: false
+    hasDoubled: false,
+    hasStand: false
   })
 
   dealerHand.value.push(drawCard())
@@ -243,7 +245,9 @@ const hit = () => {
 const stand = () => {
   if (gameStatus.value !== 'playerTurn' || !activeHand.value) return
 
-  activeHand.value.isActive = false
+  const hand = activeHand.value
+  hand.isActive = false
+  hand.hasStand = true
   checkNextHand()
 }
 
@@ -257,6 +261,7 @@ const doubleDown = () => {
   hand.hasDoubled = true
   hand.cards.push(drawCard())
   hand.isActive = false
+  hand.hasStand = true
 
   checkNextHand()
 }
@@ -272,11 +277,13 @@ const split = () => {
     cards: [hand.cards.pop()!],
     isActive: true,
     bet: hand.bet,
-    hasDoubled: false
+    hasDoubled: false,
+    hasStand: false
   }
 
   hand.cards.push(drawCard())
   hand.isActive = false
+  hand.hasStand = false
   newHand.cards.push(drawCard())
   playerHands.value.push(newHand)
   
@@ -289,7 +296,7 @@ const checkNextHand = () => {
     return
   }
 
-  const pendingHands = playerHands.value.filter(h => !h.isActive && h.cards.length > 0 && getHandScore(h.cards) <= 21)
+  const pendingHands = playerHands.value.filter(h => !h.isActive && !h.hasStand && h.cards.length > 0 && getHandScore(h.cards) <= 21)
   if (pendingHands.length > 0 && pendingHands[0]) {
     pendingHands[0].isActive = true
     return
@@ -400,11 +407,11 @@ watch(() => props.gamblingScore, (newScore) => {
       <div class="game-info">
         <div class="score-display">
           <span class="label">💰 击分:</span>
-          <span class="value">{{ gamblingScore }}</span>
+          <span class="value">{{ Math.floor(gamblingScore) }}</span>
         </div>
         <div class="bet-display">
           <span class="label">投入:</span>
-          <span class="value">{{ betAmount }}</span>
+          <span class="value">{{ Math.floor(betAmount) }}</span>
         </div>
         <div class="deck-display">
           <span class="label">剩余牌数:</span>
