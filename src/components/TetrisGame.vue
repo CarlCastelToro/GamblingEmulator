@@ -1022,16 +1022,24 @@ const handleKeydown = (e: KeyboardEvent) => {
 
   switch (e.key) {
     case 'ArrowLeft':
+    case 'a':
+    case 'A':
       movePiece(-1, 0)
       break
     case 'ArrowRight':
+    case 'd':
+    case 'D':
       movePiece(1, 0)
       break
     case 'ArrowDown':
+    case 's':
+    case 'S':
       movePiece(0, 1)
       score.value += 1
       break
     case 'ArrowUp':
+    case 'w':
+    case 'W':
       rotatePiece()
       break
     case ' ':
@@ -1039,10 +1047,29 @@ const handleKeydown = (e: KeyboardEvent) => {
       break
     case 'z':
     case 'Z':
-      // 快速旋转
       for (let i = 0; i < 3; i++) {
         rotatePiece()
       }
+      break
+  }
+}
+
+const handleDirectionClick = (dir: 'up' | 'down' | 'left' | 'right'): void => {
+  if (!isPlaying.value) return
+
+  switch (dir) {
+    case 'left':
+      movePiece(-1, 0)
+      break
+    case 'right':
+      movePiece(1, 0)
+      break
+    case 'down':
+      movePiece(0, 1)
+      score.value += 1
+      break
+    case 'up':
+      rotatePiece()
       break
   }
 }
@@ -1191,6 +1218,13 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+
+        <div class="tetris-direction-controls">
+          <button class="dir-btn dir-up" @click="handleDirectionClick('up')" :disabled="!isPlaying">▲</button>
+          <button class="dir-btn dir-left" @click="handleDirectionClick('left')" :disabled="!isPlaying">◀</button>
+          <button class="dir-btn dir-right" @click="handleDirectionClick('right')" :disabled="!isPlaying">▶</button>
+          <button class="dir-btn dir-down" @click="handleDirectionClick('down')" :disabled="!isPlaying">▼</button>
+        </div>
       </div>
     </div>
 
@@ -1199,9 +1233,9 @@ onUnmounted(() => {
       <div class="info-section">
         <h3>🎯 操作说明</h3>
         <ul>
-          <li>← → 移动</li>
-          <li>↑ 旋转</li>
-          <li>↓ 加速下落</li>
+          <li>← → / 屏幕按钮 移动</li>
+          <li>↑ / 屏幕按钮 旋转</li>
+          <li>↓ / 屏幕按钮 加速下落</li>
           <li>空格 硬降</li>
           <li>Z 快速旋转3次</li>
         </ul>
@@ -1487,6 +1521,56 @@ onUnmounted(() => {
   border-color: #ef4444;
   box-shadow: 0 0 30px rgba(239, 68, 68, 0.3);
 }
+
+.tetris-direction-controls {
+  display: grid;
+  grid-template-areas:
+    ". up ."
+    "left . right"
+    ". down .";
+  grid-template-columns: repeat(3, 50px);
+  grid-template-rows: repeat(3, 50px);
+  gap: 6px;
+  margin-top: 1rem;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+}
+
+.tetris-direction-controls .dir-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  background: linear-gradient(145deg, #3a3a4a, #2a2a3a);
+  border: 2px solid #4a4a5a;
+  border-radius: 10px;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tetris-direction-controls .dir-btn:hover:not(:disabled) {
+  background: linear-gradient(145deg, #4a4a5a, #3a3a4a);
+  transform: scale(1.05);
+}
+
+.tetris-direction-controls .dir-btn:active:not(:disabled) {
+  transform: scale(0.95);
+  background: linear-gradient(145deg, #2a2a3a, #1a1a2a);
+}
+
+.tetris-direction-controls .dir-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tetris-direction-controls .dir-up { grid-area: up; }
+.tetris-direction-controls .dir-down { grid-area: down; }
+.tetris-direction-controls .dir-left { grid-area: left; }
+.tetris-direction-controls .dir-right { grid-area: right; }
 
 .game-board {
   display: grid;

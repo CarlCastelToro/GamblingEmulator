@@ -410,24 +410,51 @@ const handleKeyDown = (e: KeyboardEvent): void => {
   
   switch (e.key) {
     case 'ArrowUp':
+    case 'w':
+    case 'W':
       e.preventDefault()
       if (direction.value.y !== 1) nextDirection.value = { x: 0, y: -1 }
       break
     case 'ArrowDown':
+    case 's':
+    case 'S':
       e.preventDefault()
       if (direction.value.y !== -1) nextDirection.value = { x: 0, y: 1 }
       break
     case 'ArrowLeft':
+    case 'a':
+    case 'A':
       e.preventDefault()
       if (direction.value.x !== 1) nextDirection.value = { x: -1, y: 0 }
       break
     case 'ArrowRight':
+    case 'd':
+    case 'D':
       e.preventDefault()
       if (direction.value.x !== -1) nextDirection.value = { x: 1, y: 0 }
       break
     case ' ':
       e.preventDefault()
       togglePause()
+      break
+  }
+}
+
+const handleDirectionClick = (dir: 'up' | 'down' | 'left' | 'right'): void => {
+  if (gameOver.value) return
+
+  switch (dir) {
+    case 'up':
+      if (direction.value.y !== 1) nextDirection.value = { x: 0, y: -1 }
+      break
+    case 'down':
+      if (direction.value.y !== -1) nextDirection.value = { x: 0, y: 1 }
+      break
+    case 'left':
+      if (direction.value.x !== 1) nextDirection.value = { x: -1, y: 0 }
+      break
+    case 'right':
+      if (direction.value.x !== -1) nextDirection.value = { x: 1, y: 0 }
       break
   }
 }
@@ -498,17 +525,19 @@ const cells = computed(() => {
         <button class="reset-btn" @click="startGame">🔄 重置</button>
       </div>
     </div>
-    
-    <div v-if="showEventMessage" class="event-message">
-      {{ showEventMessage }}
+
+    <div class="floating-notifications">
+      <div v-if="showEventMessage" class="event-message">
+        {{ showEventMessage }}
+      </div>
+
+      <div v-if="activeEffects.length > 0" class="active-effects">
+        <span v-for="effect in activeEffects" :key="effect" class="effect-tag">
+          {{ effect === 'speed-boost' ? '⚡ 加速中' : effect }}
+        </span>
+      </div>
     </div>
-    
-    <div v-if="activeEffects.length > 0" class="active-effects">
-      <span v-for="effect in activeEffects" :key="effect" class="effect-tag">
-        {{ effect === 'speed-boost' ? '⚡ 加速中' : effect }}
-      </span>
-    </div>
-    
+
     <div class="game-container">
       <div class="grid" :style="gridStyle">
         <div
@@ -518,7 +547,14 @@ const cells = computed(() => {
           :class="getCellClass(cell.x, cell.y)"
         ></div>
       </div>
-      
+
+      <div class="direction-controls">
+        <button class="dir-btn dir-up" @click="handleDirectionClick('up')" :disabled="gameOver">▲</button>
+        <button class="dir-btn dir-left" @click="handleDirectionClick('left')" :disabled="gameOver">◀</button>
+        <button class="dir-btn dir-right" @click="handleDirectionClick('right')" :disabled="gameOver">▶</button>
+        <button class="dir-btn dir-down" @click="handleDirectionClick('down')" :disabled="gameOver">▼</button>
+      </div>
+
       <div v-if="gameOver" class="game-over-overlay">
         <div class="game-over-content">
           <h2>游戏结束</h2>
@@ -549,7 +585,7 @@ const cells = computed(() => {
     <div class="instructions">
       <h3>说明</h3>
       <ul>
-        <li>⬆️⬇️⬅️➡️ 方向键控制蛇的移动方向</li>
+        <li>⬆️⬇️⬅️➡️ 方向键或屏幕按钮控制蛇的移动方向</li>
         <li>空格键 暂停/继续游戏</li>
         <li>Enter 重新开始游戏</li>
         <li>🟢 绿色部分：正常蛇身</li>
@@ -575,6 +611,7 @@ const cells = computed(() => {
 
 <style scoped>
 .snake-game {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -697,8 +734,59 @@ const cells = computed(() => {
   width: 100%;
   max-width: 440px;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
 }
+
+.direction-controls {
+  display: grid;
+  grid-template-areas:
+    ". up ."
+    "left . right"
+    ". down .";
+  grid-template-columns: repeat(3, 50px);
+  grid-template-rows: repeat(3, 50px);
+  gap: 6px;
+  margin-top: 1rem;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+}
+
+.dir-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  background: linear-gradient(145deg, #3a3a4a, #2a2a3a);
+  border: 2px solid #4a4a5a;
+  border-radius: 10px;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dir-btn:hover:not(:disabled) {
+  background: linear-gradient(145deg, #4a4a5a, #3a3a4a);
+  transform: scale(1.05);
+}
+
+.dir-btn:active:not(:disabled) {
+  transform: scale(0.95);
+  background: linear-gradient(145deg, #2a2a3a, #1a1a2a);
+}
+
+.dir-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dir-up { grid-area: up; }
+.dir-down { grid-area: down; }
+.dir-left { grid-area: left; }
+.dir-right { grid-area: right; }
 
 .grid {
   display: grid;
@@ -982,8 +1070,20 @@ const cells = computed(() => {
   }
 }
 
+.floating-notifications {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  z-index: 100;
+  pointer-events: none;
+}
+
 .event-message {
-  margin-bottom: 0.5rem;
   padding: 0.5rem 1rem;
   background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 173, 0, 0.2));
   border: 1px solid rgba(255, 215, 0, 0.4);
@@ -1008,7 +1108,6 @@ const cells = computed(() => {
 .active-effects {
   display: flex;
   gap: 0.5rem;
-  margin-bottom: 0.5rem;
 }
 
 .effect-tag {

@@ -12,7 +12,7 @@ export default defineConfig({
   ],
   base: './',
   server: {
-    port: 80,
+    port: 114,
     host: '0.0.0.0',
   },
   resolve: {
