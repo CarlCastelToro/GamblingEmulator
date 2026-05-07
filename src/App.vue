@@ -7,6 +7,17 @@ import BlackjackGame from './components/BlackjackGame.vue'
 import BirdGame from './components/BirdGame.vue'
 import TetrisGame from './components/TetrisGame.vue'
 import BankPage from './components/BankPage.vue'
+import DiceGame from './components/DiceGame.vue'
+import MemoryCard from './components/MemoryCard.vue'
+import WhackAMole from './components/WhackAMole.vue'
+import RPSGame from './components/RPSGame.vue'
+import ScratchCard from './components/ScratchCard.vue'
+import NumberGuess from './components/NumberGuess.vue'
+import PlinkoGame from './components/PlinkoGame.vue'
+import DiceBattle from './components/DiceBattle.vue'
+import MinecraftPreClassic from './components/MinecraftPreClassic.vue'
+import Minesweeper from './components/Minesweeper.vue'
+import DinoGame from './components/DinoGame.vue'
 
 const currentPage = ref('home')
 
@@ -53,13 +64,13 @@ const updateInterest = () => {
   // 贷款利息
   if (loanAmount.value > 0) {
     const interest = loanAmount.value * loanInterestRate
-    loanAmount.value += interest
+    loanAmount.value = Math.round((loanAmount.value + interest) * 100) / 100
   }
   
   // 存款利息
   if (depositAmount.value > 0) {
     const interest = depositAmount.value * depositInterestRate
-    depositAmount.value += interest
+    depositAmount.value = Math.round((depositAmount.value + interest) * 100) / 100
   }
   
   saveBankData()
@@ -148,6 +159,17 @@ const games = [
   { id: 'blackjack', name: '21点', icon: '🂡', description: '策略与运气的较量！', color: 'from-purple-500 to-pink-500' },
   { id: 'bird', name: '读博鸟', icon: '🐦', description: '小鸟也疯狂，赌命飞行！', color: 'from-yellow-500 to-orange-500' },
   { id: 'tetris', name: '俄罗斯彩礼', icon: '🟦', description: '雷霆般的攻势！', color: 'from-cyan-500 to-blue-500' },
+  { id: 'dice', name: '掷骰子', icon: '🎲', description: '猜大小点数，刺激翻倍！', color: 'from-red-500 to-rose-500' },
+  { id: 'memory', name: '翻牌记忆', icon: '🃏', description: '考验记忆力，连击奖励！', color: 'from-violet-500 to-purple-500' },
+  { id: 'whack', name: '打地鼠', icon: '🔨', description: '眼疾手快，金币滚滚来！', color: 'from-lime-500 to-green-500' },
+  { id: 'rps', name: '石头剪刀布', icon: '✊', description: '经典猜拳，连胜翻倍！', color: 'from-teal-500 to-cyan-500' },
+  { id: 'scratch', name: '刮刮乐', icon: '🎫', description: '刮开涂层，惊喜连连！', color: 'from-amber-500 to-yellow-500' },
+  { id: 'guess', name: '猜数字', icon: '🔢', description: '考验判断，步步为营！', color: 'from-indigo-500 to-blue-500' },
+  { id: 'plinko', name: '弹球', icon: '🎯', description: '弹跳落点，倍率奖励！', color: 'from-pink-500 to-rose-500' },
+  { id: 'battle', name: '骰子大战', icon: '⚔️', description: '你和庄家，谁是赢家！', color: 'from-emerald-500 to-teal-500' },
+  { id: 'minecraft', name: 'Minecraft', icon: '⛏️', description: '致敬2009年Cave Game原型！', color: 'from-green-600 to-emerald-600' },
+  { id: 'minesweeper', name: '扫雷', icon: '💣', description: '经典扫雷，步步惊心！', color: 'from-gray-500 to-slate-500' },
+  { id: 'dino', name: '恐龙跑酷', icon: '🦕', description: '经典恐龙跑酷，挑战极限！', color: 'from-green-600 to-teal-600' },
   { id: 'bank', name: '博彩银行', icon: '🏦', description: '贷款存款，财富增值！', color: 'from-amber-500 to-yellow-500' }
 ]
 
@@ -269,19 +291,52 @@ const features = [
 
     <!-- 其他游戏页面 -->
     <main v-else-if="currentPage === 'snake'" class="snake-main">
-      <SnakeGame :gambling-score="score" @update:gambling-score="score = $event" />
+      <SnakeGame :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
     </main>
     <main v-else-if="currentPage === 'roulette'" class="roulette-main">
-      <RouletteGame :gambling-score="score" :get-count="getCount" @update:gambling-score="score = $event" />
+      <RouletteGame :gambling-score="score" :get-count="getCount" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
     </main>
     <main v-else-if="currentPage === 'blackjack'" class="blackjack-main">
-      <BlackjackGame :gambling-score="score" @update:gambling-score="score = $event" />
+      <BlackjackGame :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
     </main>
     <main v-else-if="currentPage === 'bird'" class="bird-main">
-      <BirdGame :gambling-score="score" @update:gambling-score="score = $event" />
+      <BirdGame :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
     </main>
     <main v-else-if="currentPage === 'tetris'" class="tetris-main">
-      <TetrisGame :gambling-score="score" @update:gambling-score="score = $event" />
+      <TetrisGame :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'dice'" class="dice-main">
+      <DiceGame :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'memory'" class="memory-main">
+      <MemoryCard :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'whack'" class="whack-main">
+      <WhackAMole :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'rps'" class="rps-main">
+      <RPSGame :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'scratch'" class="scratch-main">
+      <ScratchCard :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'guess'" class="guess-main">
+      <NumberGuess :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'plinko'" class="plinko-main">
+      <PlinkoGame :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'battle'" class="battle-main">
+      <DiceBattle :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'minecraft'" class="minecraft-main">
+      <MinecraftPreClassic />
+    </main>
+    <main v-else-if="currentPage === 'minesweeper'" class="minesweeper-main">
+      <Minesweeper :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'dino'" class="dino-main">
+      <DinoGame :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
     </main>
     <main v-else-if="currentPage === 'bank'" class="bank-main">
       <BankPage 
@@ -649,7 +704,9 @@ const features = [
 }
 
 /* 游戏页面容器 */
-.slot-main, .snake-main, .roulette-main, .blackjack-main, .bird-main, .bank-main {
+.slot-main, .snake-main, .roulette-main, .blackjack-main, .bird-main, .bank-main,
+.tetris-main, .dice-main, .memory-main, .whack-main, .rps-main,
+.scratch-main, .guess-main, .plinko-main, .battle-main, .minecraft-main, .minesweeper-main, .dino-main {
   flex: 1;
   width: 100%;
 }

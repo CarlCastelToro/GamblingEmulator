@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 
 const props = defineProps<{
   gamblingScore: number
@@ -40,7 +40,7 @@ const probabilityBonus = ref(savedBonus ? parseFloat(savedBonus) : 0)
 
 // 获取次数
 const savedGetCount = localStorage.getItem('gambling_get_count')
-const getCount = ref(savedGetCount ? parseInt(savedGetCount,24) : 0)
+const getCount = ref(savedGetCount ? parseInt(savedGetCount, 10) : 0)
 
 // 连胜计数器
 const winStreak = ref(0)
@@ -66,6 +66,13 @@ const showFireworks = ref(false)
 const showLightning = ref(false)
 const isCelebrating = ref(false)
 const spinReelsFast = ref(false)
+
+// 预计算烟花属性
+const fireworks = ref(Array.from({ length: 20 }, () => ({
+  left: Math.random() * 100,
+  delay: Math.random() * 0.5,
+  duration: 1 + Math.random()
+})))
 
 const getScore = () => {
   addScore(10000)
@@ -453,7 +460,6 @@ const cancelBatchRoll = () => {
 }
 
 // 组件卸载时清理
-import { onUnmounted } from 'vue'
 onUnmounted(() => {
   if (animationFrameId) {
     cancelAnimationFrame(animationFrameId)
@@ -466,10 +472,10 @@ onUnmounted(() => {
   <div class="slot-machine-page">
     <!-- 特效层 -->
     <div v-if="showFireworks" class="fireworks-overlay">
-      <div v-for="i in 20" :key="i" class="firework" :style="{
-        left: Math.random() * 100 + '%',
-        animationDelay: Math.random() * 0.5 + 's',
-        animationDuration: (1 + Math.random()) + 's'
+      <div v-for="(fw, i) in fireworks" :key="i" class="firework" :style="{
+        left: fw.left + '%',
+        animationDelay: fw.delay + 's',
+        animationDuration: fw.duration + 's'
       }"></div>
     </div>
     <div v-if="showLightning" class="lightning-overlay"></div>

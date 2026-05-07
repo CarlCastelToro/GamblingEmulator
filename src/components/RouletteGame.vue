@@ -8,6 +8,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:gamblingScore', value: number): void
+  (e: 'score-gain', amount: number): void
 }>()
 
 const betAmount = ref(200)
@@ -52,7 +53,7 @@ const streakMultiplier = computed(() => {
 
 // 计算最低投入：200 * 1.1^getCount
 const minBet = computed(() => {
-  return Math.floor(200 * Math.pow(1.1, props.getCount))
+  return Math.min(Math.floor(200 * Math.pow(1.1, props.getCount)), props.gamblingScore)
 })
 
 // 计算最大可用投入
@@ -174,7 +175,8 @@ const spin = () => {
   isSpinning.value = true
   pointerGlow.value = true
   const currentBet = betAmount.value
-  emit('update:gamblingScore', props.gamblingScore - totalCost)
+  const currentScore = props.gamblingScore
+  const currentTotalCost = totalCost
 
   // 随机抖动效果
   if (randomEvent === 'chaos') {
@@ -195,53 +197,52 @@ const spin = () => {
     const winningNumber = numbers[winningIndex] ?? 0
     const winningColor = getColor(winningNumber)
     
-    let win = false
+    let anyWin = false
     let payout = 0
     let eventMessage = ''
 
     for (const bet of selectedBets.value) {
       if (bet === 'red' || bet === 'black') {
         if (bet === winningColor) {
-          win = true
+          anyWin = true
           let basePayout = Math.floor(currentBet * 2)
-          // 应用连胜加成
           payout += Math.floor(basePayout * streakMultiplier.value)
         }
       } else if (bet === 'green') {
         if (winningColor === 'green') {
-          win = true
+          anyWin = true
           let basePayout = Math.floor(currentBet * 14)
           payout += Math.floor(basePayout * streakMultiplier.value)
         }
       } else if (bet.startsWith('number-')) {
         const parts = bet.split('-')
-        const betNumber = parseInt(parts[1] ?? '') ?? 0
+        const betNumber = parseInt(parts[1] ?? '', 10) || 0
         if (betNumber === winningNumber) {
-          win = true
+          anyWin = true
           let basePayout = Math.floor(currentBet * 35)
           payout += Math.floor(basePayout * streakMultiplier.value)
         }
       } else if (bet === 'even') {
         if (winningNumber !== 0 && winningNumber % 2 === 0) {
-          win = true
+          anyWin = true
           let basePayout = Math.floor(currentBet * 2)
           payout += Math.floor(basePayout * streakMultiplier.value)
         }
       } else if (bet === 'odd') {
         if (winningNumber % 2 === 1) {
-          win = true
+          anyWin = true
           let basePayout = Math.floor(currentBet * 2)
           payout += Math.floor(basePayout * streakMultiplier.value)
         }
       } else if (bet === 'low') {
         if (winningNumber >= 1 && winningNumber <= 18) {
-          win = true
+          anyWin = true
           let basePayout = Math.floor(currentBet * 2)
           payout += Math.floor(basePayout * streakMultiplier.value)
         }
       } else if (bet === 'high') {
         if (winningNumber >= 19 && winningNumber <= 36) {
-          win = true
+          anyWin = true
           let basePayout = Math.floor(currentBet * 2)
           payout += Math.floor(basePayout * streakMultiplier.value)
         }
@@ -250,34 +251,31 @@ const spin = () => {
 
     // 处理随机事件
     if (randomEvent === 'jackpot') {
-      // 头奖：所有下注都算赢，并且翻倍
       showBonusEffect.value = true
-      payout = payout * 2 + totalCost * 5
+      payout = payout * 2 + currentTotalCost * 5
       eventMessage = ' 🏆 头奖！'
-      win = true
+      anyWin = true
     } else if (randomEvent === 'lucky') {
-      // 幸运事件：额外奖励
       showLuckyEffect.value = true
-      const luckyBonus = Math.floor(totalCost * 0.5)
+      const luckyBonus = Math.floor(currentTotalCost * 0.5)
       payout += luckyBonus
       eventMessage = ` 🍀 幸运奖励 +${luckyBonus}！`
     } else if (randomEvent === 'bonus') {
-      // 奖励事件：随机加成
       showBonusEffect.value = true
       const bonusMultiplier = 1 + Math.random() * 0.5
       payout = Math.floor(payout * bonusMultiplier)
       eventMessage = ` 🎁 额外加成 ${(bonusMultiplier * 100).toFixed(0)}%！`
-    } else if (randomEvent === 'chaos' && !win) {
-      // 混乱事件：输的时候有机会保本
+    } else if (randomEvent === 'chaos' && !anyWin) {
       const chaosChance = Math.random()
       if (chaosChance < 0.4) {
         eventMessage = ' 🌀 混乱保护！返还一半投入'
-        emit('update:gamblingScore', props.gamblingScore - totalCost + Math.floor(totalCost * 0.5))
+        payout = Math.floor(currentTotalCost * 0.5)
+        anyWin = true
       }
     }
 
     // 更新连胜/连败统计
-    if (win) {
+    if (anyWin) {
       winStreak.value++
       loseStreak.value = 0
       if (winStreak.value > maxWinStreak.value) {
@@ -288,9 +286,12 @@ const spin = () => {
       winStreak.value = 0
     }
 
-    if (win) {
-      const netWin = payout - totalCost
-      emit('update:gamblingScore', props.gamblingScore - totalCost + payout)
+    // 统一计算最终分数
+    const finalScore = currentScore - currentTotalCost + payout
+    emit('update:gamblingScore', finalScore)
+
+    if (anyWin) {
+      const netWin = payout - currentTotalCost
       let streakMsg = ''
       if (winStreak.value >= 5) streakMsg = ` (🔥 五连胜！)`
       else if (winStreak.value >= 3) streakMsg = ` (🔥 三连胜！)`
@@ -308,7 +309,7 @@ const spin = () => {
       }
     }
 
-    result.value = { color: winningColor, number: winningNumber, win, payout }
+    result.value = { color: winningColor, number: winningNumber, win: anyWin, payout }
     isSpinning.value = false
     
     // 清除特效

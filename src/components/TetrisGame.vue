@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, shallowRef, triggerRef } from 'vue'
 
 interface Position {
   x: number
@@ -23,6 +23,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:gamblingScore', value: number): void
+  (e: 'score-gain', amount: number): void
 }>()
 
 // 基础方块形状
@@ -54,7 +55,7 @@ const LIGHTNING_TETROMINO: Tetromino = {
   type: 'lightning'
 }
 
-const board = ref<(number | { type: string, color: string })[][]>([])
+const board = shallowRef<(number | { type: string, color: string })[][]>([])
 const currentPiece = ref<{ shape: number[][], color: string, x: number, y: number, type: string, powerupType?: string } | null>(null)
 const currentX = ref(0)
 const currentY = ref(0)
@@ -96,6 +97,7 @@ const boardStyle = computed(() => ({
 
 const initBoard = () => {
   board.value = Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(0))
+  triggerRef(board)
 }
 
 // 计算闪电方块概率，随等级增加而增加（5% - 30%）
@@ -287,6 +289,7 @@ const lockPiece = () => {
     }
   }
 
+  triggerRef(board)
   clearLines()
   spawnPiece()
 }
@@ -373,6 +376,9 @@ const destroyBlocksAtPosition = (targetY: number): number => {
     }
   }
   
+  if (destroyed > 0) {
+    triggerRef(board)
+  }
   return destroyed
 }
 
@@ -460,6 +466,7 @@ const explodePiece = (centerX: number, centerY: number) => {
   
   // 下落填充
   applyGravity()
+  triggerRef(board)
   triggerShake()
 }
 
@@ -536,6 +543,7 @@ const addBombBlocks = (centerX: number, centerY: number) => {
     }
   }
   
+  triggerRef(board)
   triggerShake()
 }
 
@@ -575,6 +583,7 @@ const clearRandomLine = () => {
     if (randomRow !== undefined) {
       board.value[randomRow] = Array(BOARD_WIDTH).fill(0)
       applyGravity()
+      triggerRef(board)
       score.value += 200
       showNotification('🔥 清除一行！')
     }
@@ -618,6 +627,7 @@ const shuffleBoard = () => {
     }
   }
   
+  triggerRef(board)
   showNotification('🔀 棋盘打乱！')
 }
 
@@ -656,6 +666,7 @@ const clearLines = () => {
   }
 
   if (lines > 0) {
+    triggerRef(board)
     comboCount.value++
     const lineScores = [0, 100, 350, 600, 1000]
     const baseScore = lineScores[Math.min(lines, 4)] ?? 0
@@ -1019,6 +1030,11 @@ const endGame = () => {
 
 const handleKeydown = (e: KeyboardEvent) => {
   if (!isPlaying.value) return
+
+  // 阻止方向键和空格键的默认行为，防止页面滚动
+  if (['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', ' '].includes(e.key)) {
+    e.preventDefault()
+  }
 
   switch (e.key) {
     case 'ArrowLeft':

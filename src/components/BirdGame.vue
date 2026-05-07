@@ -54,6 +54,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:gamblingScore', value: number): void
+  (e: 'score-gain', amount: number): void
 }>()
 
 const CANVAS_WIDTH = 400
@@ -123,6 +124,7 @@ const difficultyConfig = {
 
 let gameLoop: number | null = null
 let spawnLoop: number | null = null
+let lastFrameTime = 0
 let pipeId = 0
 
 const birdStyle = computed(() => ({
@@ -535,13 +537,21 @@ const startGame = () => {
     scoreVariance = 1
   }
   
-  if (gameLoop) clearInterval(gameLoop)
+  if (gameLoop) cancelAnimationFrame(gameLoop)
   if (spawnLoop) clearInterval(spawnLoop)
   if (chaosEventLoop) clearInterval(chaosEventLoop)
   if (obstacleLoop) clearInterval(obstacleLoop)
   if (powerUpLoop) clearInterval(powerUpLoop)
   
-  gameLoop = window.setInterval(gameUpdate, 16)
+  lastFrameTime = performance.now()
+  const gameLoopFn = (timestamp: number) => {
+    if (timestamp - lastFrameTime >= 16) {
+      gameUpdate()
+      lastFrameTime = timestamp
+    }
+    gameLoop = requestAnimationFrame(gameLoopFn)
+  }
+  gameLoop = requestAnimationFrame(gameLoopFn)
   spawnLoop = window.setInterval(spawnPipe, SPAWN_INTERVAL)
   
   if (isGamblingMode.value) {
@@ -609,7 +619,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
-  if (gameLoop) clearInterval(gameLoop)
+  if (gameLoop) cancelAnimationFrame(gameLoop)
   if (spawnLoop) clearInterval(spawnLoop)
   if (chaosEventLoop) clearInterval(chaosEventLoop)
   if (obstacleLoop) clearInterval(obstacleLoop)

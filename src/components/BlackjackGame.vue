@@ -7,6 +7,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:gamblingScore', value: number): void
+  (e: 'score-gain', amount: number): void
 }>()
 
 interface Card {
@@ -329,7 +330,7 @@ const hasSoft17 = (): boolean => {
       if (card.rank === 'A') aces++
     }
   }
-  return value === 18 && aces >= 1
+  return value === 17 && aces >= 1
 }
 
 const resolveGame = () => {

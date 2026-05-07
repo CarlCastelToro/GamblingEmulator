@@ -18,6 +18,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:gamblingScore', value: number): void
+  (e: 'score-gain', amount: number): void
 }>()
 
 const GRID_SIZE = 20
@@ -483,15 +484,10 @@ const speedOptions = [
   { label: '极速', value: 50 }
 ]
 
-const cells = computed(() => {
-  const result: Position[] = []
-  for (let y = 0; y < GRID_SIZE; y++) {
-    for (let x = 0; x < GRID_SIZE; x++) {
-      result.push({ x, y })
-    }
-  }
-  return result
-})
+const cells: Position[] = Array.from({ length: GRID_SIZE * GRID_SIZE }, (_, i) => ({
+  x: i % GRID_SIZE,
+  y: Math.floor(i / GRID_SIZE)
+}))
 </script>
 
 <template>
