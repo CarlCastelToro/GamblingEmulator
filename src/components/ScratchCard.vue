@@ -148,16 +148,26 @@ const quickBet = (amount: number) => {
 
     <div v-if="!gameStarted" class="start-panel">
       <div class="bet-area">
-        <label>下注:</label>
-        <div class="bet-controls">
-          <button @click="betAmount = Math.max(10, betAmount - 10)" class="adj-btn">-</button>
-          <span class="bet-amount">{{ betAmount }}</span>
-          <button @click="betAmount = Math.min(gamblingScore, betAmount + 10)" class="adj-btn">+</button>
+        <div class="bet-input">
+          <label>投入击分:</label>
+          <input 
+            type="number" 
+            v-model.number="betAmount" 
+            :min="10"
+            :max="gamblingScore"
+            class="bet-number"
+          />
         </div>
         <div class="quick-bets">
-          <button @click="quickBet(50)" class="quick-btn">50</button>
-          <button @click="quickBet(100)" class="quick-btn">100</button>
-          <button @click="quickBet(500)" class="quick-btn">500</button>
+          <button 
+            v-for="amount in [10, 50, 100, 500]" 
+            :key="amount"
+            class="quick-btn"
+            :disabled="gamblingScore < amount"
+            @click="betAmount = amount"
+          >
+            {{ amount }}
+          </button>
         </div>
       </div>
       <button class="start-btn" @click="startGame" :disabled="gamblingScore < betAmount">🎮 开始游戏</button>
@@ -231,12 +241,11 @@ const quickBet = (amount: number) => {
 .win-display { color: #28a745; font-weight: bold; padding: 0.5rem 1rem; background: rgba(40,167,69,0.2); border-radius: 10px; }
 
 .start-panel { display: flex; flex-direction: column; gap: 1.5rem; width: 100%; }
-.bet-area { display: flex; align-items: center; gap: 1rem; justify-content: center; flex-wrap: wrap; }
-.bet-area label { color: #ccc; }
-.bet-controls { display: flex; align-items: center; gap: 0.5rem; }
-.adj-btn { width: 30px; height: 30px; border: none; border-radius: 6px; background: rgba(255,255,255,0.2); color: #fff; cursor: pointer; }
-.adj-btn:hover { background: rgba(255,255,255,0.3); }
-.bet-amount { color: #ffd700; font-size: 1.3rem; font-weight: bold; min-width: 60px; text-align: center; }
+.bet-area { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
+.bet-input { display: flex; align-items: center; gap: 1rem; }
+.bet-input label { color: #ccc; font-size: 1rem; }
+.bet-number { width: 120px; padding: 0.6rem 1rem; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.2); border-radius: 8px; color: #ffd700; font-size: 1.1rem; font-weight: 600; text-align: center; }
+.bet-number:focus { outline: none; border-color: #ffd700; }
 .quick-bets { display: flex; gap: 0.5rem; }
 .quick-btn { padding: 0.3rem 0.6rem; background: #444; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }
 .quick-btn:hover { background: #555; }

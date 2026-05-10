@@ -18,6 +18,14 @@ import DiceBattle from './components/DiceBattle.vue'
 import MinecraftPreClassic from './components/MinecraftPreClassic.vue'
 import Minesweeper from './components/Minesweeper.vue'
 import DinoGame from './components/DinoGame.vue'
+import LuckyWheel from './components/LuckyWheel.vue'
+import TexasHoldem from './components/TexasHoldem.vue'
+import RhythmGame from './components/RhythmGame.vue'
+import BaccaratGame from './components/BaccaratGame.vue'
+import BombDefuse from './components/BombDefuse.vue'
+import HorseRacing from './components/HorseRacing.vue'
+import CoinRain from './components/CoinRain.vue'
+import WheelOfFortune from './components/WheelOfFortune.vue'
 
 const currentPage = ref('home')
 
@@ -170,7 +178,15 @@ const games = [
   { id: 'minecraft', name: 'Minecraft', icon: '⛏️', description: '致敬2009年Cave Game原型！', color: 'from-green-600 to-emerald-600' },
   { id: 'minesweeper', name: '扫雷', icon: '💣', description: '经典扫雷，步步惊心！', color: 'from-gray-500 to-slate-500' },
   { id: 'dino', name: '恐龙跑酷', icon: '🦕', description: '经典恐龙跑酷，挑战极限！', color: 'from-green-600 to-teal-600' },
-  { id: 'bank', name: '博彩银行', icon: '🏦', description: '贷款存款，财富增值！', color: 'from-amber-500 to-yellow-500' }
+  { id: 'bank', name: '博彩银行', icon: '🏦', description: '贷款存款，财富增值！', color: 'from-amber-500 to-yellow-500' },
+  { id: 'wheel', name: '幸运转盘', icon: '🎡', description: '转动命运之轮，赢取大奖！', color: 'from-pink-500 to-rose-500' },
+  { id: 'holdem', name: '德州扑克', icon: '🃏', description: '与庄家一决高下！', color: 'from-red-600 to-red-800' },
+  { id: 'rhythm', name: '节奏大师', icon: '🎵', description: '跟着节奏按键得分！', color: 'from-purple-500 to-indigo-500' },
+  { id: 'baccarat', name: '百家乐', icon: '🎴', description: '经典赌场游戏，猜胜负！', color: 'from-yellow-600 to-orange-600' },
+  { id: 'bomb', name: '炸弹拆除', icon: '💣', description: '紧张拆弹，赢取奖励！', color: 'from-red-500 to-rose-600' },
+  { id: 'horse', name: '赛马竞速', icon: '🏇', description: '选择马匹，下注赢大奖！', color: 'from-amber-600 to-yellow-700' },
+  { id: 'coin', name: '金币雨', icon: '💰', description: '收集金币，躲避炸弹！', color: 'from-yellow-500 to-amber-500' },
+  { id: 'fortune', name: '命运之轮', icon: '🎰', description: '转动转盘，10倍奖励！', color: 'from-purple-600 to-indigo-600' }
 ]
 
 const features = [
@@ -219,7 +235,7 @@ const features = [
             </div>
             <div class="stat-divider"></div>
             <div class="stat-item">
-              <span class="stat-value">5</span>
+              <span class="stat-value">21</span>
               <span class="stat-label">趣味游戏</span>
             </div>
             <div class="stat-divider"></div>
@@ -282,6 +298,18 @@ const features = [
           </ul>
         </div>
       </section>
+
+      <section class="rules-intro">
+        <h2 class="section-title">📖 免责声明</h2>
+        <div class="rules-content">
+          <ul>
+            <li>• 本网站纯粹是无聊时用于打发时间而开发的个人网站之一</li>
+            <li>• gign.ltd 版权所有 由 I Am System32 2026©</li>
+            <li>• 除了向原作者捐款以外根本没有任何付费内容, 但就目前我们的捐赠页面W.I.P.</li>
+            <li>• 如果你真的花了钱, 或者从别的什么地方买到了这个游戏, 那你肯定是傻逼</li>
+          </ul>
+        </div>
+      </section>
     </main>
 
     <!-- 老虎机页面 -->
@@ -337,6 +365,30 @@ const features = [
     </main>
     <main v-else-if="currentPage === 'dino'" class="dino-main">
       <DinoGame :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'wheel'" class="wheel-main">
+      <LuckyWheel :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'holdem'" class="holdem-main">
+      <TexasHoldem :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'rhythm'" class="rhythm-main">
+      <RhythmGame :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'baccarat'" class="baccarat-main">
+      <BaccaratGame :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'bomb'" class="bomb-main">
+      <BombDefuse :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'horse'" class="horse-main">
+      <HorseRacing :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'coin'" class="coin-main">
+      <CoinRain :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
+    </main>
+    <main v-else-if="currentPage === 'fortune'" class="fortune-main">
+      <WheelOfFortune :gambling-score="score" @update:gambling-score="score = $event" @score-gain="handleScoreGain" />
     </main>
     <main v-else-if="currentPage === 'bank'" class="bank-main">
       <BankPage 
@@ -706,7 +758,9 @@ const features = [
 /* 游戏页面容器 */
 .slot-main, .snake-main, .roulette-main, .blackjack-main, .bird-main, .bank-main,
 .tetris-main, .dice-main, .memory-main, .whack-main, .rps-main,
-.scratch-main, .guess-main, .plinko-main, .battle-main, .minecraft-main, .minesweeper-main, .dino-main {
+.scratch-main, .guess-main, .plinko-main, .battle-main, .minecraft-main, .minesweeper-main, .dino-main,
+.wheel-main, .holdem-main, .rhythm-main, .baccarat-main,
+.bomb-main, .horse-main, .coin-main, .fortune-main {
   flex: 1;
   width: 100%;
 }

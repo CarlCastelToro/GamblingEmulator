@@ -87,6 +87,10 @@ const gravityDir = ref(1)
 const activePowerUps = ref<{ type: string; endTime: number }[]>([])
 const chaosEvents = ref<ChaosEvent[]>([])
 const chaosMeter = ref(0)
+const lives = ref(3)
+const maxLives = 3
+const invincibilityFrames = ref(0)
+const damageFlash = ref(0)
 const doubleJumpAvailable = ref(false)
 const hasDoubleJumped = ref(false)
 const dinoScale = ref(1)
@@ -107,6 +111,7 @@ const hasShield = computed(() => activePowerUps.value.some(p => p.type === 'shie
 const hasMagnet = computed(() => activePowerUps.value.some(p => p.type === 'magnet' && Date.now() < p.endTime))
 const hasSlowMo = computed(() => activePowerUps.value.some(p => p.type === 'slowmo' && Date.now() < p.endTime))
 const isShrunk = computed(() => activePowerUps.value.some(p => p.type === 'shrink' && Date.now() < p.endTime))
+const isInvincible = computed(() => invincibilityFrames.value > 0)
 
 const startGame = () => {
   if (gameStarted.value && !gameOver.value) return
@@ -133,6 +138,19 @@ const startGame = () => {
   screenFlash.value = 0
   gravityDir.value = 1
   activePowerUps.value = []
+  chaosEvents.value = []
+  chaosMeter.value = 0
+  doubleJumpAvailable.value = false
+  hasDoubleJumped.value = false
+  dinoScale.value = 1
+  dinoTrail.value = []
+  bgHue.value = 0
+  warningFlash.value = 0
+  lastChaosEventTime = 0
+  lastPowerUpTime = 0
+  lives.value = isChaosMode.value ? maxLives : 1
+  invincibilityFrames.value = 0
+  damageFlash.value = 0
   chaosEvents.value = []
   chaosMeter.value = 0
   doubleJumpAvailable.value = false
@@ -313,13 +331,20 @@ const spawnObstacle = () => {
       color: '#ff4400'
     })
   } else if (type === 'laser' && isChaosMode.value) {
+    // 激光位置：0=底部, 1=中部, 2=顶部
+    const laserPos = Math.floor(Math.random() * 3)
+    const laserY = laserPos === 0 ? GROUND_Y - 60 : laserPos === 1 ? GROUND_Y - 120 : 20
+    const laserHeight = 60
+    
     obstacles.value.push({
       x: CANVAS_WIDTH,
-      width: 8,
-      height: GROUND_Y,
+      width: 12,
+      height: laserHeight,
       type: 'laser',
-      active: true,
-      color: '#ff0000'
+      birdY: laserY,
+      active: false, // 开始时不激活，给玩家反应时间
+      color: '#ff0000',
+      speed: gameSpeed.value * 0.8 // 激光移动稍慢
     })
   } else if (type === 'portal' && isChaosMode.value) {
     obstacles.value.push({
@@ -362,7 +387,10 @@ const checkCollision = (obs: Obstacle): boolean => {
   const hitboxShrink = 5 * scale
   
   if (obs.type === 'laser' && obs.active) {
-    return dinoX + dinoWidth > obs.x && dinoX < obs.x + obs.width
+    const laserY = obs.birdY || 0
+    const laserBottom = laserY + obs.height
+    return dinoX + dinoWidth > obs.x && dinoX < obs.x + obs.width && 
+           dinoYPos + dinoHeight > laserY && dinoYPos < laserBottom
   }
   
   if (obs.type === 'portal') {
@@ -476,6 +504,14 @@ const gameLoop = () => {
   chaosEvents.value = chaosEvents.value.filter(e => Date.now() - e.startTime < e.duration)
   activePowerUps.value = activePowerUps.value.filter(p => Date.now() < p.endTime)
   
+  // 更新无敌帧
+  if (invincibilityFrames.value > 0) {
+    invincibilityFrames.value--
+  }
+  if (damageFlash.value > 0) {
+    damageFlash.value--
+  }
+  
   const now = performance.now()
   if (now - lastObstacleTime > nextObstacleTime) {
     spawnObstacle()
@@ -492,9 +528,14 @@ const gameLoop = () => {
     const obsSpeed = (obs.speed || gameSpeed.value) * speedMult
     obs.x -= obsSpeed
     
-    if (obs.type === 'laser' && obs.active) {
-      if (frameCount % 60 < 30) obs.active = false
-      else obs.active = true
+    if (obs.type === 'laser') {
+      // 激光闪烁逻辑：每90帧一个周期，前60帧警告，后30帧激活
+      const cycle = frameCount % 90
+      if (cycle < 60) {
+        obs.active = false // 警告阶段
+      } else {
+        obs.active = true // 激活阶段
+      }
     }
     
     if (obs.x + obs.width < 0) {
@@ -514,6 +555,32 @@ const gameLoop = () => {
         spawnParticles(obs.x, obsY, '#00ffff', 10)
         continue
       }
+      
+      // 如果处于无敌帧，跳过碰撞
+      if (isInvincible.value) {
+        continue
+      }
+      
+      // 混沌模式：扣除生命而不是直接结束游戏
+      if (isChaosMode.value && lives.value > 1) {
+        lives.value--
+        invincibilityFrames.value = 90 // 无敌3秒 (30fps * 3)
+        damageFlash.value = 20
+        screenShake.value = 20
+        spawnParticles(50, dinoY.value + DINO_HEIGHT / 2, '#ff0000', 15)
+        
+        // 移除障碍物
+        obstacles.value.splice(i, 1)
+        
+        if (lives.value <= 1) {
+          // 最后一条命时结束游戏
+          endGame()
+          draw()
+          return
+        }
+        continue
+      }
+      
       endGame()
       draw()
       return
@@ -599,6 +666,59 @@ const draw = () => {
     ctx.fillStyle = '#f7f7f7'
   }
   ctx.fillRect(-10, -10, CANVAS_WIDTH + 20, CANVAS_HEIGHT + 20)
+  
+  // 闪电特效（仅混沌模式）
+  if (isChaosMode.value) {
+    const lightningChance = Math.random()
+    if (lightningChance < 0.02 || (warningFlash.value > 0 && Math.random() < 0.3)) {
+      // 闪电主干
+      const startX = Math.random() * CANVAS_WIDTH
+      const startY = 0
+      const endY = GROUND_Y * 0.6
+      
+      ctx.strokeStyle = `rgba(200, 220, 255, ${0.8 + Math.random() * 0.2})`
+      ctx.lineWidth = 2 + Math.random() * 3
+      ctx.beginPath()
+      ctx.moveTo(startX, startY)
+      
+      let currentX = startX
+      let currentY = startY
+      const segments = 5 + Math.floor(Math.random() * 5)
+      const segmentHeight = (endY - startY) / segments
+      
+      for (let i = 0; i < segments; i++) {
+        currentX += (Math.random() - 0.5) * 60
+        currentY += segmentHeight
+        ctx.lineTo(currentX, currentY)
+      }
+      ctx.stroke()
+      
+      // 闪电分支
+      const branches = 2 + Math.floor(Math.random() * 3)
+      for (let b = 0; b < branches; b++) {
+        const branchStart = Math.floor(Math.random() * segments)
+        const branchX = startX + (Math.random() - 0.5) * 60 * branchStart
+        const branchY = startY + segmentHeight * branchStart
+        
+        ctx.strokeStyle = `rgba(180, 200, 255, ${0.5 + Math.random() * 0.3})`
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(branchX, branchY)
+        ctx.lineTo(branchX + (Math.random() - 0.5) * 80, branchY + 20 + Math.random() * 30)
+        ctx.stroke()
+      }
+      
+      // 闪电光晕
+      ctx.fillStyle = `rgba(200, 220, 255, ${0.1 + Math.random() * 0.1})`
+      ctx.fillRect(0, 0, CANVAS_WIDTH, GROUND_Y * 0.3)
+    }
+    
+    // 持续的环境闪电效果（微弱）
+    if (frameCount % 120 < 5) {
+      ctx.fillStyle = `rgba(150, 180, 255, ${0.02 + Math.random() * 0.03})`
+      ctx.fillRect(0, 0, CANVAS_WIDTH, GROUND_Y)
+    }
+  }
   
   ctx.fillStyle = isChaosMode.value ? `hsl(${bgHue.value}, 30%, 50%)` : '#535353'
   ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, 2)
@@ -687,15 +807,38 @@ const draw = () => {
       ctx.arc(obs.x + obs.width / 2 + 5, obs.birdY! + obs.height / 2, obs.width / 3, 0, Math.PI * 2)
       ctx.fill()
     } else if (obs.type === 'laser') {
+      const laserY = obs.birdY || 0
+      const laserBottom = laserY + obs.height
+      
       if (obs.active) {
-        ctx.fillStyle = `rgba(255, 0, 0, ${0.5 + Math.sin(frameCount * 0.3) * 0.3})`
-        ctx.fillRect(obs.x, 0, obs.width, GROUND_Y)
+        // 激活状态 - 高亮激光
+        const glowIntensity = 0.5 + Math.sin(frameCount * 0.3) * 0.3
+        ctx.fillStyle = `rgba(255, 50, 0, ${glowIntensity})`
+        ctx.fillRect(obs.x - 4, laserY, obs.width + 8, obs.height)
         
         ctx.fillStyle = '#ff0000'
-        ctx.fillRect(obs.x - 2, 0, obs.width + 4, GROUND_Y)
+        ctx.fillRect(obs.x, laserY, obs.width, obs.height)
+        
+        // 激光核心白光
+        ctx.fillStyle = `rgba(255, 200, 200, ${0.6 + Math.sin(frameCount * 0.5) * 0.3})`
+        ctx.fillRect(obs.x + 2, laserY + 2, obs.width - 4, obs.height - 4)
       } else {
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.1)'
-        ctx.fillRect(obs.x, 0, obs.width, GROUND_Y)
+        // 警告状态 - 闪烁虚线
+        const warningAlpha = 0.3 + Math.sin(frameCount * 0.2) * 0.2
+        ctx.strokeStyle = `rgba(255, 0, 0, ${warningAlpha})`
+        ctx.lineWidth = 2
+        ctx.setLineDash([8, 4])
+        ctx.beginPath()
+        ctx.moveTo(obs.x + obs.width / 2, laserY)
+        ctx.lineTo(obs.x + obs.width / 2, laserBottom)
+        ctx.stroke()
+        ctx.setLineDash([])
+        
+        // 警告标记
+        ctx.fillStyle = `rgba(255, 100, 0, ${warningAlpha})`
+        ctx.font = '14px Arial'
+        ctx.textAlign = 'center'
+        ctx.fillText('⚠', obs.x + obs.width / 2, laserY - 5)
       }
     } else if (obs.type === 'portal') {
       const portalFrame = frameCount % 30
@@ -774,6 +917,32 @@ const draw = () => {
     ctx.fillText(`COMBO x${combo.value}`, 20, 30)
   }
   
+  // 显示生命值（仅混沌模式）
+  if (isChaosMode.value) {
+    ctx.textAlign = 'left'
+    ctx.font = 'bold 18px Arial'
+    
+    // 受伤闪烁效果
+    if (damageFlash.value > 0) {
+      ctx.fillStyle = (damageFlash.value % 4 < 2) ? '#ff0000' : '#ffffff'
+    } else {
+      ctx.fillStyle = '#ff0000'
+    }
+    
+    let heartsText = ''
+    for (let i = 0; i < maxLives; i++) {
+      heartsText += i < lives.value ? '❤️' : '🖤'
+    }
+    ctx.fillText(heartsText, 20, 55)
+    
+    // 无敌提示
+    if (isInvincible.value) {
+      ctx.fillStyle = '#ffff00'
+      ctx.font = '14px Arial'
+      ctx.fillText('无敌中', 20, 75)
+    }
+  }
+  
   if (isChaosMode.value) {
     ctx.fillStyle = '#ff0000'
     ctx.fillRect(20, CANVAS_HEIGHT - 20, 100, 8)
@@ -792,6 +961,12 @@ const draw = () => {
   
   if (screenFlash.value > 0) {
     ctx.fillStyle = `rgba(255, 255, 255, ${screenFlash.value / 10})`
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+  }
+  
+  // 受伤红色闪烁
+  if (damageFlash.value > 0) {
+    ctx.fillStyle = `rgba(255, 0, 0, ${damageFlash.value / 20})`
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
   }
   
@@ -910,6 +1085,22 @@ const adjustBet = (amount: number) => {
   gamblingBet.value = Math.max(10, Math.min(props.gamblingScore, gamblingBet.value + amount))
 }
 
+type GameMode = 'normal' | 'gambling' | 'chaos'
+
+const currentMode = computed<GameMode>(() => {
+  if (isChaosMode.value && isGamblingMode.value) return 'chaos'
+  if (isChaosMode.value) return 'chaos'
+  if (isGamblingMode.value) return 'gambling'
+  return 'normal'
+})
+
+const setMode = (mode: GameMode) => {
+  if (gameStarted.value && !gameOver.value) return
+  
+  isGamblingMode.value = mode === 'gambling' || mode === 'chaos'
+  isChaosMode.value = mode === 'chaos'
+}
+
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('keyup', handleKeyup)
@@ -926,8 +1117,8 @@ onUnmounted(() => {
 <template>
   <div class="dino-game">
     <div class="game-header">
-      <h2 class="game-title" :class="{ chaos: isChaosMode }">
-        {{ isChaosMode ? '🌋 混沌恐龙' : '🦕 恐龙跑酷' }}
+      <h2 class="game-title" :class="{ chaos: currentMode === 'chaos', gambling: currentMode === 'gambling' }">
+        {{ currentMode === 'chaos' ? '🌋 混沌恐龙' : currentMode === 'gambling' ? '🎰 博彩恐龙' : '🦕 恐龙跑酷' }}
       </h2>
       <div class="game-stats">
         <div class="stat">
@@ -936,47 +1127,96 @@ onUnmounted(() => {
         </div>
         <div class="stat">
           <span class="stat-label">最高分</span>
-          <span class="stat-value">{{ isChaosMode ? chaosHighScore : highScore }}</span>
+          <span class="stat-value">{{ currentMode === 'chaos' ? chaosHighScore : highScore }}</span>
         </div>
         <div class="stat">
           <span class="stat-label">连击</span>
           <span class="stat-value combo" :class="{ active: combo > 1 }">{{ combo }}</span>
         </div>
+        <div v-if="currentMode === 'chaos'" class="stat">
+          <span class="stat-label">生命</span>
+          <span class="stat-value lives">
+            <span v-for="i in maxLives" :key="i" :class="{ 'heart-full': i <= lives, 'heart-empty': i > lives }">
+              {{ i <= lives ? '❤️' : '🖤' }}
+            </span>
+          </span>
+        </div>
       </div>
     </div>
 
     <div class="mode-section">
-      <button 
-        class="mode-toggle" 
-        :class="{ active: isChaosMode }" 
-        @click="toggleChaosMode"
-      >
-        {{ isChaosMode ? '🌋 混沌模式' : '🦕 经典模式' }}
-      </button>
+      <div class="mode-selector">
+        <button 
+          class="mode-btn" 
+          :class="{ active: currentMode === 'normal' }" 
+          @click="setMode('normal')"
+        >
+          <span class="mode-icon">🦕</span>
+          <span class="mode-name">经典模式</span>
+          <span class="mode-desc">基础玩法</span>
+        </button>
+        
+        <button 
+          class="mode-btn gambling" 
+          :class="{ active: currentMode === 'gambling' }" 
+          @click="setMode('gambling')"
+        >
+          <span class="mode-icon">🎰</span>
+          <span class="mode-name">博彩模式</span>
+          <span class="mode-desc">赢取奖励</span>
+        </button>
+        
+        <button 
+          class="mode-btn chaos" 
+          :class="{ active: currentMode === 'chaos' }" 
+          @click="setMode('chaos')"
+        >
+          <span class="mode-icon">🌋</span>
+          <span class="mode-name">混沌模式</span>
+          <span class="mode-desc">2倍奖励</span>
+        </button>
+      </div>
       
-      <div v-if="isChaosMode" class="chaos-features">
+      <div v-if="currentMode === 'chaos'" class="chaos-features">
         <span class="feature-tag">🔥 特殊障碍物</span>
         <span class="feature-tag">⚡ 随机事件</span>
         <span class="feature-tag">🎁 道具系统</span>
         <span class="feature-tag">💰 2倍奖励</span>
       </div>
+      
+      <div v-if="currentMode === 'gambling'" class="gambling-info">
+        <span class="feature-tag">🎰 赌注玩法</span>
+        <span class="feature-tag">📈 高风险高回报</span>
+      </div>
     </div>
 
-    <div class="gambling-section">
-      <button class="gambling-toggle" :class="{ active: isGamblingMode }" @click="toggleGamblingMode">
-        {{ isGamblingMode ? '🎰 博彩模式' : '🎮 普通模式' }}
-      </button>
-      
-      <div v-if="isGamblingMode" class="bet-controls">
-        <span class="bet-label">赌注:</span>
-        <button class="bet-btn" @click="adjustBet(-10)" :disabled="gameStarted && !gameOver">-10</button>
-        <span class="bet-amount">{{ gamblingBet }}</span>
-        <button class="bet-btn" @click="adjustBet(10)" :disabled="gameStarted && !gameOver">+10</button>
+    <div v-if="currentMode === 'gambling' || currentMode === 'chaos'" class="bet-section">
+      <div class="bet-input">
+        <label>投入击分:</label>
+        <input 
+          type="number" 
+          v-model.number="gamblingBet" 
+          :min="10"
+          :max="gamblingScore"
+          class="bet-number"
+          :disabled="gameStarted && !gameOver"
+        />
+      </div>
+      <div class="quick-bets">
+        <button 
+          v-for="amount in [10, 50, 100, 500]" 
+          :key="amount"
+          class="quick-btn"
+          :disabled="gamblingScore < amount || (gameStarted && !gameOver)"
+          @click="gamblingBet = amount"
+        >
+          {{ amount }}
+        </button>
       </div>
       
-      <div v-if="isGamblingMode" class="reward-info">
+      <div class="reward-info">
         <p>得分达到 {{ gamblingBet * 2 }} 可获得奖励</p>
-        <p>最高可赢 {{ gamblingBet * (isChaosMode ? 15 : 10) }} 击分!</p>
+        <p>最高可赢 {{ gamblingBet * (currentMode === 'chaos' ? 15 : 10) }} 击分!</p>
       </div>
     </div>
 
@@ -1052,9 +1292,20 @@ onUnmounted(() => {
   animation: chaosGlow 1s ease-in-out infinite alternate;
 }
 
+.game-title.gambling {
+  color: #ffd700;
+  text-shadow: 0 0 15px rgba(255, 215, 0, 0.6);
+  animation: gamblingGlow 1.5s ease-in-out infinite alternate;
+}
+
 @keyframes chaosGlow {
   from { text-shadow: 0 0 10px rgba(255, 68, 0, 0.5); }
   to { text-shadow: 0 0 30px rgba(255, 68, 0, 1), 0 0 60px rgba(255, 0, 0, 0.5); }
+}
+
+@keyframes gamblingGlow {
+  from { text-shadow: 0 0 10px rgba(255, 215, 0, 0.4); }
+  to { text-shadow: 0 0 25px rgba(255, 215, 0, 0.8), 0 0 50px rgba(255, 140, 0, 0.4); }
 }
 
 .game-stats {
@@ -1086,6 +1337,19 @@ onUnmounted(() => {
   animation: comboPulse 0.5s ease-in-out infinite;
 }
 
+.stat-value.lives {
+  display: flex;
+  gap: 2px;
+}
+
+.stat-value.loves .heart-full {
+  color: #ff0000;
+}
+
+.stat-value.loves .heart-empty {
+  color: #666;
+}
+
 @keyframes comboPulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.2); }
@@ -1099,31 +1363,82 @@ onUnmounted(() => {
   margin-bottom: 1.5rem;
 }
 
-.mode-toggle {
-  padding: 0.8rem 1.5rem;
-  background: linear-gradient(135deg, rgba(83, 83, 83, 0.8), rgba(50, 50, 50, 0.8));
+.mode-selector {
+  display: flex;
+  gap: 0.8rem;
+  width: 100%;
+  max-width: 600px;
+}
+
+.mode-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 1rem 0.8rem;
+  background: linear-gradient(145deg, rgba(37, 37, 56, 0.9), rgba(26, 26, 40, 0.9));
   color: #fff;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  border-radius: 25px;
-  font-size: 1.1rem;
-  font-weight: 600;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
   cursor: pointer;
   transition: all 0.3s;
 }
 
-.mode-toggle:hover {
-  background: linear-gradient(135deg, rgba(100, 100, 100, 0.9), rgba(70, 70, 70, 0.9));
-  border-color: rgba(255, 255, 255, 0.4);
-  transform: translateY(-2px);
+.mode-btn:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
 }
 
-.mode-toggle.active {
-  background: linear-gradient(135deg, #ff4400, #ff0000);
+.mode-btn.active {
+  background: linear-gradient(145deg, rgba(255, 215, 0, 0.2), rgba(255, 140, 0, 0.2));
+  border-color: #ffd700;
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+}
+
+.mode-btn.gambling.active {
+  background: linear-gradient(145deg, rgba(255, 215, 0, 0.3), rgba(255, 140, 0, 0.3));
+  border-color: #ffd700;
+  box-shadow: 0 0 25px rgba(255, 215, 0, 0.4);
+}
+
+.mode-btn.chaos.active {
+  background: linear-gradient(145deg, rgba(255, 68, 0, 0.3), rgba(255, 0, 0, 0.3));
   border-color: #ff4400;
-  box-shadow: 0 0 20px rgba(255, 68, 0, 0.5);
+  box-shadow: 0 0 25px rgba(255, 68, 0, 0.4);
+  animation: chaosBorder 2s ease-in-out infinite;
 }
 
-.chaos-features {
+@keyframes chaosBorder {
+  0%, 100% { border-color: #ff4400; }
+  50% { border-color: #ff0000; box-shadow: 0 0 30px rgba(255, 0, 0, 0.5); }
+}
+
+.mode-icon {
+  font-size: 1.8rem;
+}
+
+.mode-name {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.mode-desc {
+  font-size: 0.75rem;
+  color: #aaa;
+}
+
+.mode-btn.active .mode-desc {
+  color: #ffd700;
+}
+
+.mode-btn.chaos.active .mode-desc {
+  color: #ff8800;
+}
+
+.chaos-features,
+.gambling-info {
   display: flex;
   gap: 0.8rem;
   flex-wrap: wrap;
@@ -1139,7 +1454,13 @@ onUnmounted(() => {
   color: #ff8800;
 }
 
-.gambling-section {
+.gambling-info .feature-tag {
+  background: rgba(255, 215, 0, 0.2);
+  border-color: rgba(255, 215, 0, 0.4);
+  color: #ffd700;
+}
+
+.bet-section {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1148,41 +1469,48 @@ onUnmounted(() => {
   padding: 1rem;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.gambling-toggle {
-  padding: 0.6rem 1.2rem;
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  border-radius: 25px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.gambling-toggle:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.gambling-toggle.active {
-  background: linear-gradient(135deg, #ffd700, #ff8c00);
-  color: #000;
-  border-color: #ffd700;
-}
-
-.bet-controls {
+.bet-input {
   display: flex;
   align-items: center;
   gap: 1rem;
 }
 
-.bet-label {
+.bet-input label {
   color: #aaa;
   font-size: 0.95rem;
 }
 
-.bet-btn {
+.bet-number {
+  width: 100px;
+  padding: 0.5rem 0.8rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: #ffd700;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.bet-number:focus {
+  outline: none;
+  border-color: #ffd700;
+}
+
+.bet-number:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.quick-bets {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.quick-btn {
   padding: 0.4rem 0.8rem;
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
@@ -1193,22 +1521,14 @@ onUnmounted(() => {
   transition: all 0.3s;
 }
 
-.bet-btn:hover:not(:disabled) {
+.quick-btn:hover:not(:disabled) {
   background: rgba(255, 215, 0, 0.2);
   border-color: #ffd700;
 }
 
-.bet-btn:disabled {
+.quick-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.bet-amount {
-  font-size: 1.3rem;
-  font-weight: bold;
-  color: #ffd700;
-  min-width: 60px;
-  text-align: center;
 }
 
 .reward-info {
